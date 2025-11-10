@@ -4,11 +4,23 @@ run:
 linters:
   default: all
   disable:
-   - cyclop
-   - depguard
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 3
+    - cyclop
+    - depguard
+    - nlreturn
+    - lll
+    - varnamelen
+    - mnd
+    - goconst
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+      - common-false-positives
+  settings:
+    revive:
+      severity: warning
+      rules:
+        - name: exported
 formatters:
   enable:
     - gofumpt
@@ -19,3 +31,6 @@ formatters:
     goimports:
       local-prefixes:
         - oci-cpu-shaper
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 3
