@@ -83,7 +83,7 @@ We support two documented modes. Rootless is first-class but not exclusive.
 
 ## 4) Language, build, image
 
-* **Go** 1.23+, static build. Single binary.
+* **Go** (latest), static build. Single binary.
 * Image: `gcr.io/distroless/static:nonroot` by default; for Mode B publish a `-rootful` image variant that runs as UID 0.
 * Target arch: `linux/amd64, linux/arm64`.
 * RSS target: ≤ 10–15 MiB steady.

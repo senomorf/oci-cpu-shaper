@@ -9,3 +9,4 @@
 ### Changed
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
+- Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
