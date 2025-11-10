@@ -137,9 +137,14 @@ func TestRunSuccessfulPath(t *testing.T) {
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	overrideBuildInfo(t, "test-version", "test-commit", "2024-05-01")
-
 	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return buildinfo.Info{
+			Version:   "test-version",
+			GitCommit: "test-commit",
+			BuildDate: "2024-05-01",
+		}
+	}
 	deps.newLogger = func(level string) (*zap.Logger, error) {
 		if level != "debug" {
 			t.Fatalf("expected log level \"debug\", got %q", level)
@@ -177,7 +182,12 @@ func TestRunReturnsParseErrorExitCode(t *testing.T) {
 
 	var stderr bytes.Buffer
 
-	exitCode := run(t.Context(), []string{"--mode", "invalid"}, defaultRunDeps(), &stderr)
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return buildinfo.Info{}
+	}
+
+	exitCode := run(t.Context(), []string{"--mode", "invalid"}, deps, &stderr)
 	if exitCode != 2 {
 		t.Fatalf("expected exit code 2 for parse errors, got %d", exitCode)
 	}
@@ -193,6 +203,9 @@ func TestRunReturnsLoggerConfigurationError(t *testing.T) {
 	var stderr bytes.Buffer
 
 	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return buildinfo.Info{}
+	}
 	deps.newLogger = func(string) (*zap.Logger, error) {
 		return nil, errStubLoggerBoom
 	}
@@ -218,6 +231,9 @@ func TestRunHandlesControllerError(t *testing.T) {
 	ctrl.runErr = errStubControllerRun
 
 	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return buildinfo.Info{Version: "test-version"}
+	}
 	deps.newLogger = func(string) (*zap.Logger, error) {
 		return logger, nil
 	}
@@ -241,22 +257,6 @@ func TestRunHandlesControllerError(t *testing.T) {
 	if len(failureEntries) == 0 {
 		t.Fatalf("expected controller failure log, got %+v", observed.All())
 	}
-}
-
-func overrideBuildInfo(t *testing.T, version, commit, date string) {
-	t.Helper()
-
-	originalVersion, originalCommit, originalDate := buildinfo.Version, buildinfo.GitCommit, buildinfo.BuildDate
-
-	buildinfo.Version = version
-	buildinfo.GitCommit = commit
-	buildinfo.BuildDate = date
-
-	t.Cleanup(func() {
-		buildinfo.Version = originalVersion
-		buildinfo.GitCommit = originalCommit
-		buildinfo.BuildDate = originalDate
-	})
 }
 
 func assertInfoLogEntry(t *testing.T, entries []observer.LoggedEntry, version, commit, date string) {
