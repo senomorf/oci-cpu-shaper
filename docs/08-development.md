@@ -8,7 +8,7 @@ This guide covers the tooling expectations and command shortcuts for contributin
 - `make` for running the provided automation targets.
 - [`golangci-lint`](https://golangci-lint.run/) for linting.
 
-Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v1.64.8 and `gofumpt` v0.6.0. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable.
+Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v2.6.1 and `gofumpt` v0.6.0. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable.
 
 ## Command Reference
 
@@ -17,7 +17,7 @@ The repository includes a `Makefile` that wraps the most common development task
 | Command | Purpose |
 |---------|---------|
 | `make fmt` | Format all Go source files with `gofmt` followed by `gofumpt`. |
-| `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v1.64.8, `gofumpt` v0.6.0). |
+| `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v2.6.1, `gofumpt` v0.6.0). |
 | `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml`. |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
