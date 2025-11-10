@@ -2,6 +2,6 @@
 
 ## Scope: `docs/`
 - Keep documentation in sync with shipped behavior; update the files listed in §12 when related features change.
-- Highlight coverage expectations (CI ≥85%) whenever documenting new workflows or test requirements.
+- Highlight coverage expectations (CI ≥85%, enforced via `make coverage` and the CI coverage job) whenever documenting new workflows or test requirements.
 - Use concise headings mirroring the plan’s numbering (e.g., §§4–7) so readers can cross-reference easily.
 - Include OCI and kernel citations as in the plan; prefer Markdown links with reference-style footnotes when adding new sources.
