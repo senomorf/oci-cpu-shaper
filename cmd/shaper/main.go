@@ -43,13 +43,17 @@ func defaultRunDeps() runDeps {
 func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
 	opts, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
+		if _, ferr := fmt.Fprintf(stderr, "%v\n", err); ferr != nil {
+			return 2
+		}
 		return 2
 	}
 
 	logger, err := deps.newLogger(opts.logLevel)
 	if err != nil {
-		fmt.Fprintf(stderr, "failed to configure logger: %v\n", err)
+		if _, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err); ferr != nil {
+			return 1
+		}
 		return 1
 	}
 	defer func() {
