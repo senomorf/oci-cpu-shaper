@@ -456,6 +456,8 @@ func TestNewClientValidatesParameters(t *testing.T) {
 }
 
 func TestNewInstancePrincipalClientPropagatesProviderError(t *testing.T) {
+	t.Parallel()
+
 	overrideInstancePrincipalProvider(t, func() (common.ConfigurationProvider, error) {
 		return nil, errForcedFailure
 	})
@@ -467,6 +469,8 @@ func TestNewInstancePrincipalClientPropagatesProviderError(t *testing.T) {
 }
 
 func TestNewInstancePrincipalClientPropagatesClientError(t *testing.T) {
+	t.Parallel()
+
 	provider := stubConfigurationProvider(t)
 
 	overrideInstancePrincipalProvider(t, func() (common.ConfigurationProvider, error) {
@@ -489,6 +493,8 @@ func TestNewInstancePrincipalClientPropagatesClientError(t *testing.T) {
 }
 
 func TestNewInstancePrincipalClientSuccess(t *testing.T) {
+	t.Parallel()
+
 	provider := stubConfigurationProvider(t)
 
 	overrideInstancePrincipalProvider(t, func() (common.ConfigurationProvider, error) {
