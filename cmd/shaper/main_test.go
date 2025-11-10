@@ -139,11 +139,7 @@ func TestRunSuccessfulPath(t *testing.T) {
 
 	deps := defaultRunDeps()
 	deps.currentBuildInfo = func() buildinfo.Info {
-		return buildinfo.Info{
-			Version:   "test-version",
-			GitCommit: "test-commit",
-			BuildDate: "2024-05-01",
-		}
+		return stubBuildInfo("test-version", "test-commit", "2024-05-01")
 	}
 	deps.newLogger = func(level string) (*zap.Logger, error) {
 		if level != "debug" {
@@ -184,7 +180,7 @@ func TestRunReturnsParseErrorExitCode(t *testing.T) {
 
 	deps := defaultRunDeps()
 	deps.currentBuildInfo = func() buildinfo.Info {
-		return buildinfo.Info{}
+		return stubBuildInfo("", "", "")
 	}
 
 	exitCode := run(t.Context(), []string{"--mode", "invalid"}, deps, &stderr)
@@ -204,7 +200,7 @@ func TestRunReturnsLoggerConfigurationError(t *testing.T) {
 
 	deps := defaultRunDeps()
 	deps.currentBuildInfo = func() buildinfo.Info {
-		return buildinfo.Info{}
+		return stubBuildInfo("", "", "")
 	}
 	deps.newLogger = func(string) (*zap.Logger, error) {
 		return nil, errStubLoggerBoom
@@ -232,7 +228,7 @@ func TestRunHandlesControllerError(t *testing.T) {
 
 	deps := defaultRunDeps()
 	deps.currentBuildInfo = func() buildinfo.Info {
-		return buildinfo.Info{Version: "test-version"}
+		return stubBuildInfo("test-version", "", "")
 	}
 	deps.newLogger = func(string) (*zap.Logger, error) {
 		return logger, nil
@@ -313,4 +309,12 @@ func fieldString(fields []zap.Field, key string) string {
 	}
 
 	return ""
+}
+
+func stubBuildInfo(version, commit, date string) buildinfo.Info {
+	return buildinfo.Info{
+		Version:   version,
+		GitCommit: commit,
+		BuildDate: date,
+	}
 }
