@@ -25,12 +25,11 @@ ensure-golangci-lint:
 	BIN="$(GOLANGCI_LINT_BIN)"; \
 	CURRENT_VERSION=""; \
 	if [ -x "$$BIN" ]; then \
-		CURRENT_VERSION="$$($$BIN version --format short 2>/dev/null || true)"; \
+		CURRENT_VERSION="$$($$BIN version --short 2>/dev/null || true)"; \
 	fi; \
 	if [ "$$CURRENT_VERSION" != "$(GOLANGCI_LINT_VERSION)" ]; then \
 		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)"; \
-		# binary will be $(go env GOPATH)/bin/golangci-lint
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(GO_BIN_PATH) $(GOLANGCI_LINT_VERSION); \
 	fi
 
 fmt: ensure-gofumpt
