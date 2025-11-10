@@ -43,3 +43,5 @@ As additional controllers and data sources ship, this manifest will expand with 
 At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo` and echoes the selected mode. This gives operators immediate confirmation of the version, Git commit, and configuration path used for a run before any controllers mutate system state.
 
 Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, and unsupported log levels report a structured error before the logger is constructed. This keeps early runs predictable while new policy engines are still being prototyped.
+
+Smoke tests introduced in §11 exercise the dependency-injected entrypoint to ensure build metadata, dummy IMDS plumbing, and no-op controllers stay wired correctly as additional subsystems land.
