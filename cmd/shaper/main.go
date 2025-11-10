@@ -36,16 +36,18 @@ func main() {
 }
 
 type runDeps struct {
-	newLogger     func(level string) (*zap.Logger, error)
-	newIMDS       func() imds.Client
-	newController func(mode string) adapt.Controller
+	newLogger        func(level string) (*zap.Logger, error)
+	newIMDS          func() imds.Client
+	newController    func(mode string) adapt.Controller
+	currentBuildInfo func() buildinfo.Info
 }
 
 func defaultRunDeps() runDeps {
 	return runDeps{
-		newLogger:     newLogger,
-		newIMDS:       defaultIMDSFactory,
-		newController: defaultControllerFactory,
+		newLogger:        newLogger,
+		newIMDS:          defaultIMDSFactory,
+		newController:    defaultControllerFactory,
+		currentBuildInfo: buildinfo.Current,
 	}
 }
 
@@ -74,7 +76,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		_ = logger.Sync()
 	}()
 
-	info := buildinfo.Current()
+	info := deps.currentBuildInfo()
 	logger.Info(
 		"starting oci-cpu-shaper",
 		zap.String("version", info.Version),

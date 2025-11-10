@@ -21,7 +21,7 @@ The repository includes a `Makefile` that wraps the most common development task
 | `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml` (auto-fixes formatting and lint findings where supported). |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
-| `make coverage` | Generate a race-enabled coverage profile and print the total percentage (CI enforces ≥30%). |
+| `make coverage` | Generate a race-enabled coverage profile for production packages and print the total percentage (CI enforces ≥85%). |
 | `make build` | Compile all packages to validate build readiness. |
 
 ### §14 Lint Auto-Fix Workflow
@@ -31,7 +31,7 @@ The repository includes a `Makefile` that wraps the most common development task
 - Inspect `git status` after linting and stage the generated edits before committing so reviewers see both the intentional changes and any formatter updates together (§14).
 - Auto-fixes often adjust imports and line wrapping; rerunning `make lint` after resolving merge conflicts keeps the workspace aligned with CI and avoids last-minute surprises.
 
-Running the `test` target enables the Go race detector by default, helping detect data races early during development. Use `make coverage` before pushing to confirm your changes keep statement coverage at or above the CI threshold; the command writes `coverage.out` and reports the aggregate percentage using `go tool cover`. CI currently requires at least 30 percent statement coverage, matching the repository's existing baseline.
+Running the `test` target enables the Go race detector by default, helping detect data races early during development. Use `make coverage` before pushing to confirm your changes keep statement coverage at or above the CI threshold; the command writes `coverage.out` and reports the aggregate percentage across production code by skipping developer tooling packages such as `cmd/agentscheck`. CI currently requires at least 85 percent statement coverage, and the latest filtered run reports 86.6 percent. Override `COVERAGE_EXCLUDES` when invoking the target if you introduce additional non-production packages that should be omitted from the calculation.
 
 ## Suggested Workflow
 
@@ -54,7 +54,7 @@ After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with An
 
 ## §11 Coverage Workflow
 
-Follow this loop to keep the repository above the CI-required 30 percent statement coverage floor (§14):
+Follow this loop to keep the repository above the CI-required 85 percent statement coverage floor (§14):
 
 1. Write or update unit, integration, or smoke tests alongside code changes so new logic is executable under `go test` (§§5, 9, 11).
 2. Run `make coverage` to generate `coverage.out`, review the reported percentage, and inspect uncovered packages with `go tool cover -func coverage.out` when the value trends downward.
