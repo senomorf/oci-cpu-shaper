@@ -60,3 +60,10 @@ consistent execution outside Compose.
 Use the `oci-cpu-shaper:nonroot` tag for Kubernetes or Docker rootless runtimes. Switch to
 `oci-cpu-shaper:rootful` when privileged host integration or cgroup tuning requires UID 0 inside the
 container.
+
+## §6.5 Responsiveness verification
+Before promoting a new image or Compose bundle, run the CPU weight integration suite described in
+[`docs/08-development.md`](08-development.md#-112-cpu-weight-integration-suite). The harness builds
+the rootful image, launches a low-weight instance beside a competing CPU-bound container, and asserts
+that cgroup v2 honours the expected `cpu.weight` ratios. Capturing the logs (as CI does via
+artifacts) provides an audit trail for the responsiveness guarantees promised in §§5 and 9.
