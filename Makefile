@@ -7,7 +7,7 @@ COVERAGE_SUMMARY ?= coverage.txt
 
 MODULE := $(shell $(GO) list -m 2>/dev/null)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
-COVERAGE_EXCLUDES ?= $(if $(MODULE),$(MODULE)/cmd/agentscheck,)
+COVERAGE_EXCLUDES ?= $(if $(MODULE),$(MODULE)/cmd/agentscheck $(MODULE)/tests/integration/cmd/cpu-hog,)
 COVERAGE_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(PKGS))
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
