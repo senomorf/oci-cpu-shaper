@@ -1,6 +1,5 @@
 package main
 
-//nolint:depguard // tests rely on internal packages and zap test helpers
 import (
 	"bytes"
 	"context"

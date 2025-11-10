@@ -1,7 +1,6 @@
 // Package main wires the shaper CLI entrypoint.
 package main
 
-//nolint:depguard // main wires project-internal modules and zap logging
 import (
 	"context"
 	"errors"

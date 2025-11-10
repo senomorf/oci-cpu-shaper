@@ -1,6 +1,5 @@
 package imds_test
 
-//nolint:depguard // IMDS tests import the package under test
 import (
 	"testing"
 
