@@ -31,6 +31,9 @@ var (
 	errMissingMetricsClient = errors.New("oci: metrics client is required")
 	errNilClient            = errors.New("oci: metrics client receiver is nil")
 	errMissingInstanceOCID  = errors.New("oci: instance OCID is required")
+
+	instancePrincipalProviderFn = auth.InstancePrincipalConfigurationProvider             //nolint:gochecknoglobals
+	newMonitoringClientFn       = monitoring.NewMonitoringClientWithConfigurationProvider //nolint:gochecknoglobals
 )
 
 type metricsClient interface {
@@ -55,12 +58,12 @@ func NewInstancePrincipalClient(compartmentID string) (*Client, error) {
 		return nil, errMissingCompartmentID
 	}
 
-	provider, err := auth.InstancePrincipalConfigurationProvider()
+	provider, err := instancePrincipalProviderFn()
 	if err != nil {
 		return nil, fmt.Errorf("build instance principal provider: %w", err)
 	}
 
-	monitoringClient, err := monitoring.NewMonitoringClientWithConfigurationProvider(provider)
+	monitoringClient, err := newMonitoringClientFn(provider)
 	if err != nil {
 		return nil, fmt.Errorf("create monitoring client: %w", err)
 	}
@@ -252,8 +255,12 @@ func newTestClient(
 	return newClient(metrics, compartmentID, clock)
 }
 
+type ociAPICaller interface {
+	Call(ctx context.Context, request *http.Request) (*http.Response, error)
+}
+
 type sdkMonitoringClient struct {
-	client *monitoring.MonitoringClient
+	client ociAPICaller
 }
 
 func (s *sdkMonitoringClient) SummarizeMetricsData(
