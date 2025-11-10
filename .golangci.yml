@@ -5,11 +5,6 @@ linters:
     - wsl
   enable:
     - wsl_v5
-  settings:
-    wsl_v5:
-      allow-first-in-block: true
-      allow-whole-block: false
-      branch-max-lines: 2
   exclusions:
     presets:
       - comments
@@ -25,6 +20,10 @@ linters:
         linters:
           - depguard
   settings:
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
     depguard:
       rules:
         Main:
