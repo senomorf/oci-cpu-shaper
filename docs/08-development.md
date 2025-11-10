@@ -38,3 +38,7 @@ Running the `test` target enables the Go race detector by default, helping detec
 5. Optionally execute `make build` to confirm the binary compiles successfully.
 
 These steps help keep changes consistent and maintainable across the project.
+
+## §8.4 Scoped AGENTS Policy
+
+Create or update scoped `AGENTS.md` files whenever a directory needs guidance that differs from or expands on the repository root instructions. Keep each file tightly focused on actionable rules for that directory tree, and prefer linking to canonical docs (such as this development guide) instead of duplicating prose. When refactoring or adding new areas of the codebase, audit existing scopes, remove obsolete guidance, and consolidate overlapping notes so the instructions stay concise and discoverable.
