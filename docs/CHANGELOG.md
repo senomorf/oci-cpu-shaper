@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥30% statement coverage budget (§11)._ 
 - Repository-wide AGENTS policy check with `make agents` and CI coverage to enforce scoped instructions (§8.4).
 - Token-optimised AGENTS templates and directory-change checklist to keep scoped guidance current (§8.6).
 - Distroless Docker targets, Compose manifests, and runtime scripts for Komodo Mode A (§6).
@@ -13,6 +14,7 @@
 - Race-enabled `make coverage` target and CI enforcement requiring at least 30% statement coverage before merging (§14).
 
 ### Changed
+_Record coverage reductions or mitigations so reviewers can audit the CI ≥30% threshold impact (§11)._ 
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
