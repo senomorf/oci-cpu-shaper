@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -14,14 +16,12 @@ import (
 	"oci-cpu-shaper/pkg/imds"
 )
 
-type options struct {
-	configPath string
-	logLevel   string
-	mode       string
-}
-
 func main() {
-	opts := parseFlags()
+	opts, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
 
 	logger, err := newLogger(opts.logLevel)
 	if err != nil {
@@ -60,18 +60,6 @@ func main() {
 	}
 }
 
-func parseFlags() options {
-	var opts options
-
-	flag.StringVar(&opts.configPath, "config", "/etc/oci-cpu-shaper/config.yaml", "Path to the shaper configuration file")
-	flag.StringVar(&opts.logLevel, "log-level", "info", "Structured log level (debug, info, warn, error)")
-	flag.StringVar(&opts.mode, "mode", "dry-run", "Controller mode to use (dry-run, enforce, noop)")
-
-	flag.Parse()
-
-	return opts
-}
-
 func newLogger(level string) (*zap.Logger, error) {
 	if level == "" {
 		level = "info"
@@ -87,4 +75,50 @@ func newLogger(level string) (*zap.Logger, error) {
 	cfg.EncoderConfig.CallerKey = "caller"
 
 	return cfg.Build()
+}
+
+type options struct {
+	configPath string
+	logLevel   string
+	mode       string
+}
+
+var validModes = map[string]struct{}{
+	"dry-run": {},
+	"enforce": {},
+	"noop":    {},
+}
+
+func parseArgs(args []string) (options, error) {
+	var opts options
+
+	fs := flag.NewFlagSet("shaper", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&opts.configPath, "config", "/etc/oci-cpu-shaper/config.yaml", "Path to the shaper configuration file")
+	fs.StringVar(&opts.logLevel, "log-level", "info", "Structured log level (debug, info, warn, error)")
+	fs.StringVar(&opts.mode, "mode", "dry-run", "Controller mode to use (dry-run, enforce, noop)")
+
+	if err := fs.Parse(args); err != nil {
+		return options{}, err
+	}
+
+	opts.mode = strings.ToLower(strings.TrimSpace(opts.mode))
+	if opts.mode == "" {
+		opts.mode = "dry-run"
+	}
+	if _, ok := validModes[opts.mode]; !ok {
+		return options{}, fmt.Errorf("unsupported mode %q (supported: dry-run, enforce, noop)", opts.mode)
+	}
+
+	opts.logLevel = strings.TrimSpace(opts.logLevel)
+	if opts.logLevel == "" {
+		opts.logLevel = "info"
+	}
+
+	opts.configPath = strings.TrimSpace(opts.configPath)
+	if opts.configPath == "" {
+		opts.configPath = "/etc/oci-cpu-shaper/config.yaml"
+	}
+
+	return opts, nil
 }

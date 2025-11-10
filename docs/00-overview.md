@@ -15,6 +15,7 @@ Command-line tooling provides the first entry point for operators. The `shaper` 
 - `--config` – Absolute or relative path to the primary configuration file. Defaults to `/etc/oci-cpu-shaper/config.yaml`.
 - `--log-level` – Structured logging level such as `debug`, `info`, `warn`, or `error`.
 - `--mode` – Controller behavior selector. Early builds support `dry-run`, `enforce`, and `noop` placeholders.
+  Unsupported values are rejected during flag parsing to keep experiments predictable.
 
 Configuration files follow a layered layout to keep policy inputs and infrastructure wiring distinct:
 
