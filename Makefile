@@ -3,7 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
-GOFUMPT_VERSION ?= 0.6.0
+GOFUMPT_VERSION ?= 0.9.2
 
 GO_BIN_PATH := $(shell $(GO) env GOBIN)
 ifeq ($(GO_BIN_PATH),)
