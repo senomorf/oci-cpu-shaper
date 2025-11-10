@@ -1,5 +1,6 @@
 package main
 
+//nolint:depguard // tests rely on internal packages and zap test helpers
 import (
 	"bytes"
 	"context"
@@ -11,7 +12,6 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
-
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
 )
@@ -29,15 +29,15 @@ func TestParseArgsDefaults(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
-	if opts.configPath != "/etc/oci-cpu-shaper/config.yaml" {
+	if opts.configPath != defaultConfigPath {
 		t.Fatalf("expected default config path, got %q", opts.configPath)
 	}
 
-	if opts.logLevel != "info" {
+	if opts.logLevel != defaultLogLevel {
 		t.Fatalf("expected default log level, got %q", opts.logLevel)
 	}
 
-	if opts.mode != "dry-run" {
+	if opts.mode != modeDryRun {
 		t.Fatalf("expected default mode, got %q", opts.mode)
 	}
 }
@@ -45,7 +45,14 @@ func TestParseArgsDefaults(t *testing.T) {
 func TestParseArgsValidCustomizations(t *testing.T) {
 	t.Parallel()
 
-	args := []string{"--config", "./testdata/config.yaml", "--log-level", "debug", "--mode", "enforce"}
+	args := []string{
+		"--config",
+		"./testdata/config.yaml",
+		"--log-level",
+		"debug",
+		"--mode",
+		"enforce",
+	}
 
 	opts, err := parseArgs(args)
 	if err != nil {
@@ -60,7 +67,7 @@ func TestParseArgsValidCustomizations(t *testing.T) {
 		t.Fatalf("unexpected log level: %q", opts.logLevel)
 	}
 
-	if opts.mode != "enforce" {
+	if opts.mode != modeEnforce {
 		t.Fatalf("unexpected mode: %q", opts.mode)
 	}
 }
@@ -108,11 +115,11 @@ func TestParseArgsTrimSpaces(t *testing.T) {
 		t.Fatalf("parseArgs returned error: %v", err)
 	}
 
-	if opts.mode != "noop" {
+	if opts.mode != modeNoop {
 		t.Fatalf("expected trimmed lowercase mode, got %q", opts.mode)
 	}
 
-	if opts.logLevel != "info" {
+	if opts.logLevel != defaultLogLevel {
 		t.Fatalf("expected trimmed log level, got %q", opts.logLevel)
 	}
 }
@@ -125,7 +132,8 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 		t.Fatal("expected flag parsing error")
 	}
 
-	if !errors.Is(err, flag.ErrHelp) && !strings.Contains(err.Error(), "flag provided but not defined") {
+	if !errors.Is(err, flag.ErrHelp) &&
+		!strings.Contains(err.Error(), "flag provided but not defined") {
 		// Accept either standard flag error or ErrHelp depending on flag parsing behavior.
 		t.Fatalf("unexpected error type: %v", err)
 	}
@@ -156,7 +164,12 @@ func TestRunSuccessfulPath(t *testing.T) {
 		return &ctrl
 	}
 
-	exitCode := run(t.Context(), []string{"--mode", "enforce", "--log-level", "debug"}, deps, io.Discard)
+	exitCode := run(
+		t.Context(),
+		[]string{"--mode", "enforce", "--log-level", "debug"},
+		deps,
+		io.Discard,
+	)
 	if exitCode != 0 {
 		t.Fatalf("expected zero exit code, got %d", exitCode)
 	}
@@ -165,7 +178,7 @@ func TestRunSuccessfulPath(t *testing.T) {
 		t.Fatal("expected controller Run to be called")
 	}
 
-	if ctrl.mode != "enforce" {
+	if ctrl.mode != modeEnforce {
 		t.Fatalf("expected controller mode \"enforce\", got %q", ctrl.mode)
 	}
 
@@ -178,7 +191,7 @@ func TestRunReturnsParseErrorExitCode(t *testing.T) {
 	var stderr bytes.Buffer
 
 	exitCode := run(t.Context(), []string{"--mode", "invalid"}, defaultRunDeps(), &stderr)
-	if exitCode != 2 {
+	if exitCode != exitCodeParseError {
 		t.Fatalf("expected exit code 2 for parse errors, got %d", exitCode)
 	}
 
@@ -198,7 +211,7 @@ func TestRunReturnsLoggerConfigurationError(t *testing.T) {
 	}
 
 	exitCode := run(t.Context(), nil, deps, &stderr)
-	if exitCode != 1 {
+	if exitCode != exitCodeRuntimeError {
 		t.Fatalf("expected exit code 1 when logger configuration fails, got %d", exitCode)
 	}
 
@@ -228,8 +241,13 @@ func TestRunHandlesControllerError(t *testing.T) {
 		return &ctrl
 	}
 
-	exitCode := run(t.Context(), []string{"--mode", "noop", "--log-level", "debug"}, deps, io.Discard)
-	if exitCode != 1 {
+	exitCode := run(
+		t.Context(),
+		[]string{"--mode", "noop", "--log-level", "debug"},
+		deps,
+		io.Discard,
+	)
+	if exitCode != exitCodeRuntimeError {
 		t.Fatalf("expected exit code 1 when controller.Run returns an error, got %d", exitCode)
 	}
 
@@ -259,7 +277,11 @@ func overrideBuildInfo(t *testing.T, version, commit, date string) {
 	})
 }
 
-func assertInfoLogEntry(t *testing.T, entries []observer.LoggedEntry, version, commit, date string) {
+func assertInfoLogEntry(
+	t *testing.T,
+	entries []observer.LoggedEntry,
+	version, commit, date string,
+) {
 	t.Helper()
 
 	var infoEntry *observer.LoggedEntry
@@ -267,6 +289,7 @@ func assertInfoLogEntry(t *testing.T, entries []observer.LoggedEntry, version, c
 	for i := range entries {
 		if entries[i].Message == "starting oci-cpu-shaper" {
 			infoEntry = &entries[i]
+
 			break
 		}
 	}

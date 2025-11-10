@@ -1,5 +1,6 @@
 package adapt_test
 
+//nolint:depguard // controller tests exercise the package directly
 import (
 	"testing"
 

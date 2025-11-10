@@ -1,5 +1,6 @@
 package buildinfo_test
 
+//nolint:depguard // buildinfo tests import the package under test
 import (
 	"testing"
 

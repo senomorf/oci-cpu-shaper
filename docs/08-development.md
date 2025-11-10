@@ -18,11 +18,18 @@ The repository includes a `Makefile` that wraps the most common development task
 |---------|---------|
 | `make fmt` | Format all Go source files with `gofmt` followed by `gofumpt`. |
 | `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v2.6.1, `gofumpt` v0.9.2). |
-| `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml`. |
+| `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml` (auto-fixes formatting and lint findings where supported). |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
 | `make coverage` | Generate a race-enabled coverage profile and print the total percentage (CI enforces ≥30%). |
 | `make build` | Compile all packages to validate build readiness. |
+
+### §14 Lint Auto-Fix Workflow
+
+- `.golangci.yml` enables `issues.fix: true` and formatter integration (`gofmt`, `gofumpt`, `gci`, `golines`), so each `make lint` or `golangci-lint run` invocation rewrites files automatically when a supported diagnostic can be corrected.
+- When running the linter manually, prefer `golangci-lint run --fix` to mirror CI and the Makefile helper; re-run until the command exits cleanly.
+- Inspect `git status` after linting and stage the generated edits before committing so reviewers see both the intentional changes and any formatter updates together (§14).
+- Auto-fixes often adjust imports and line wrapping; rerunning `make lint` after resolving merge conflicts keeps the workspace aligned with CI and avoids last-minute surprises.
 
 Running the `test` target enables the Go race detector by default, helping detect data races early during development. Use `make coverage` before pushing to confirm your changes keep statement coverage at or above the CI threshold; the command writes `coverage.out` and reports the aggregate percentage using `go tool cover`. CI currently requires at least 30 percent statement coverage, matching the repository's existing baseline.
 
@@ -30,7 +37,7 @@ Running the `test` target enables the Go race detector by default, helping detec
 
 1. Update code and add or adjust tests.
 2. Run `make fmt` to normalize formatting with `gofmt` and `gofumpt`.
-3. Execute `make check` to run linting and race-enabled tests together (or `make lint` / `make test` individually).
+3. Execute `make check` to run linting and race-enabled tests together (or `make lint` / `make test` individually); because linting applies auto-fixes, review `git status` afterward and stage the generated edits.
 4. Optionally execute `make build` to confirm the binary compiles successfully.
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.

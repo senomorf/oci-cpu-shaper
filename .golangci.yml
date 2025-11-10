@@ -23,10 +23,29 @@ formatters:
     goimports:
       local-prefixes:
         - oci-cpu-shaper
+linters-settings:
+  depguard:
+    rules:
+      Main:
+        list-type: blacklist
+        files:
+          - $all
+        packages:
+          - github.com/pkg/errors
 issues:
   max-issues-per-linter: 0
   max-same-issues: 3
   fix: true
+  exclude-rules:
+    - path: ^cmd/shaper/.*
+      linters:
+        - depguard
+    - path: ^internal/buildinfo/.*
+      linters:
+        - depguard
+    - path: ^pkg/(adapt|imds)/.*
+      linters:
+        - depguard
 run:
   timeout: 5m
   tests: true
