@@ -26,6 +26,7 @@ func NewNoopController(mode string) Controller {
 
 // Run satisfies the Controller interface without performing any work.
 func (c *NoopController) Run(ctx context.Context) error {
+	_ = ctx
 	return nil
 }
 

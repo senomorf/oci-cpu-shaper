@@ -1,3 +1,4 @@
+// Package main wires the shaper CLI entrypoint.
 package main
 
 import (

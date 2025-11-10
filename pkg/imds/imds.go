@@ -21,10 +21,12 @@ func NewDummyClient() Client {
 
 // Region returns a synthetic region identifier for development use.
 func (DummyClient) Region(ctx context.Context) (string, error) {
+	_ = ctx
 	return "dummy-region-1", nil
 }
 
 // InstanceID returns a placeholder instance OCID.
 func (DummyClient) InstanceID(ctx context.Context) (string, error) {
+	_ = ctx
 	return "ocid1.instance.oc1..dummy", nil
 }
