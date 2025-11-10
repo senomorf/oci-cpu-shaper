@@ -12,6 +12,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Automated release pipeline publishing multi-architecture images with Syft-generated SPDX SBOM artifacts (§14).
 - Unit coverage for IMDS dummy metadata, controller mode wiring, and CLI bootstrap flows via dependency-injected smoke tests (§§5, 9, 11).
 - Race-enabled `make coverage` target and CI enforcement requiring at least 85% statement coverage before merging (§14).
+- CPU weight responsiveness integration suite with CI coverage on `ubuntu-latest` (cgroup v2) that exercises the container build alongside a competing workload and publishes verbose logs (§§6, 11).
 
 ### Changed
 _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 

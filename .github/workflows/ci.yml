@@ -127,3 +127,48 @@ jobs:
           image: oci-cpu-shaper:test
           fail-build: true
           severity-cutoff: critical
+
+  integration:
+    name: integration (cgroup v2)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Verify Docker cgroup version
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          version=$(docker info --format '{{.CgroupVersion}}')
+          if [ "$version" != "2" ]; then
+            echo "::error::integration suite requires cgroup v2 (detected ${version:-unknown})"
+            exit 1
+          fi
+
+          echo "Cgroup version: $version"
+
+      - name: Run integration tests
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+          mkdir -p artifacts
+          touch artifacts/integration.log
+          go test -tags=integration -v ./tests/integration/... | tee artifacts/integration.log
+
+      - name: Upload integration logs
+        uses: actions/upload-artifact@v5.0.0
+        with:
+          name: integration-logs
+          path: artifacts/integration.log
+          if-no-files-found: error
