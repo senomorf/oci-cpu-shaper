@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.0.0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -27,10 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.0.0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -38,7 +38,7 @@ jobs:
             go.sum
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9.0.0
         with:
           version: v1.64.8
           args: --timeout=5m
@@ -48,10 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.0.0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.0.0
 
       - name: Prepare build metadata
         id: build-meta
@@ -74,10 +74,10 @@ jobs:
           echo "build-date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v3.11.1
 
       - name: Build container image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6.18.0
         with:
           context: .
           file: deploy/Dockerfile
@@ -95,19 +95,19 @@ jobs:
         run: docker run --rm oci-cpu-shaper:test --mode dry-run
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.20.9
         with:
           image: oci-cpu-shaper:test
           output-file: sbom.spdx.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5.0.0
         with:
           name: container-sbom
           path: sbom.spdx.json
 
       - name: Scan image for vulnerabilities
-        uses: anchore/scan-action@v4
+        uses: anchore/scan-action@v7.1.0
         with:
           image: oci-cpu-shaper:test
           fail-build: true
