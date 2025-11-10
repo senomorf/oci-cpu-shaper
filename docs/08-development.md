@@ -8,7 +8,7 @@ This guide covers the tooling expectations and command shortcuts for contributin
 - `make` for running the provided automation targets.
 - [`golangci-lint`](https://golangci-lint.run/) for linting.
 
-Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v1.64.8 and `gofumpt` v0.6.0. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable.
+Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v2.6.1 and `gofumpt` v0.9.2. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable.
 
 ## Command Reference
 
@@ -17,7 +17,7 @@ The repository includes a `Makefile` that wraps the most common development task
 | Command | Purpose |
 |---------|---------|
 | `make fmt` | Format all Go source files with `gofmt` followed by `gofumpt`. |
-| `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v1.64.8, `gofumpt` v0.6.0). |
+| `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v2.6.1, `gofumpt` v0.9.2). |
 | `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml`. |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
@@ -34,6 +34,16 @@ Running the `test` target enables the Go race detector by default, helping detec
 4. Optionally execute `make build` to confirm the binary compiles successfully.
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.
+
+## Container Smoke and SBOM Checks
+
+Every pull request also exercises the container delivery path. The CI workflow builds the image with `docker buildx build` using the `deploy/Dockerfile`, reuses GitHub Actions cache-backed layers for faster rebuilds, and tags the result locally as `oci-cpu-shaper:test`. A dry-run smoke test executes the packaged binary:
+
+```bash
+docker run --rm oci-cpu-shaper:test --mode dry-run
+```
+
+After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made.
 
 ## §11 Coverage Workflow
 

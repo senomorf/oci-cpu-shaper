@@ -2,8 +2,8 @@ SHELL := /bin/bash
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION ?= v1.64.8
-GOFUMPT_VERSION ?= 0.6.0
+GOLANGCI_LINT_VERSION ?= v2.6.1
+GOFUMPT_VERSION ?= 0.9.2
 
 GO_BIN_PATH := $(shell $(GO) env GOBIN)
 ifeq ($(GO_BIN_PATH),)
@@ -29,7 +29,8 @@ ensure-golangci-lint:
 	fi; \
 	if [ "$$CURRENT_VERSION" != "$(GOLANGCI_LINT_VERSION)" ]; then \
 		echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)"; \
-		$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
+		# binary will be $(go env GOPATH)/bin/golangci-lint
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
 	fi
 
 fmt: ensure-gofumpt

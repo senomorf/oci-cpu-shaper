@@ -6,6 +6,10 @@
 - Follow the [§11 Coverage Workflow](08-development.md#11-coverage-workflow) to keep statement coverage at or above the CI floor during feature work (§14).
 - Block merges on CI completion to keep `main` green.
 - Cache Go modules across CI jobs so linting and testing complete quickly while using the latest Go toolchain (§14).
+- Build the container image with Docker Buildx on every pull request, reusing cached layers,
+  and run a dry-run smoke test via the packaged CLI before merging (§14).
+- Generate an SPDX SBOM for each pull-request build and gate merges on vulnerability scanning
+  that fails when critical issues appear (§14).
 
 ## 14.2 Release pipeline
 - Trigger releases from git tags prefixed with `v` to map cleanly to container tags (§14).
