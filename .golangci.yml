@@ -1,28 +1,18 @@
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
+  default: all
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 3
+formatters:
   enable:
-    - govet
-    - staticcheck
-    - ineffassign
-    - revive
-    - errcheck
-    - unused
     - gofumpt
     - goimports
-issues:
-  exclude-use-default: false
-  max-same-issues: 3
-  max-issues-per-linter: 0
-
-linters-settings:
-  gofumpt:
-    module-path: oci-cpu-shaper
-  goimports:
-    local-prefixes: oci-cpu-shaper
-  revive:
-    severity: warning
-    rules:
-      - name: exported
+  settings:
+    gofumpt:
+      module-path: oci-cpu-shaper
+    goimports:
+      local-prefixes:
+        - oci-cpu-shaper
