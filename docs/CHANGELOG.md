@@ -15,5 +15,4 @@
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
 - CI and release automation now leverage GitHub Actions caching to speed linting, testing, and multi-architecture builds (§14).
 - Release SBOM generation is pinned to the latest Anchore Syft GitHub Action for up-to-date SPDX output (§14).
-- Local lint tooling is standardised on `golangci-lint` v1.64.8 and the configuration drops the unsupported `version` field so CI and
-  contributor environments run the same release (§14).
+- Local lint tooling is standardised on `golangci-lint` v1.64.8 with pinned installation in CI and the developer Makefile helper, keeping contributor environments aligned (§14).
