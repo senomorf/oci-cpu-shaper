@@ -10,9 +10,9 @@ type Info struct {
 
 // These variables are intended to be overridden via -ldflags during release builds.
 var (
-	Version   = "dev"
-	GitCommit = "unknown"
-	BuildDate = "unknown"
+	Version   = "dev"     //nolint:gochecknoglobals // set via ldflags at build time
+	GitCommit = "unknown" //nolint:gochecknoglobals // set via ldflags at build time
+	BuildDate = "unknown" //nolint:gochecknoglobals // set via ldflags at build time
 )
 
 // Current returns the build metadata for logging and diagnostics.

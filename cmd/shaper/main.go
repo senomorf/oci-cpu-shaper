@@ -32,11 +32,9 @@ type runDeps struct {
 
 func defaultRunDeps() runDeps {
 	return runDeps{
-		newLogger: newLogger,
-		newIMDS:   imds.NewDummyClient,
-		newController: func(mode string) adapt.Controller {
-			return adapt.NewNoopController(mode)
-		},
+		newLogger:     newLogger,
+		newIMDS:       defaultIMDSFactory,
+		newController: defaultControllerFactory,
 	}
 }
 
@@ -46,6 +44,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		if _, ferr := fmt.Fprintf(stderr, "%v\n", err); ferr != nil {
 			return 2
 		}
+
 		return 2
 	}
 
@@ -54,8 +53,10 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		if _, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err); ferr != nil {
 			return 1
 		}
+
 		return 1
 	}
+
 	defer func() {
 		_ = logger.Sync()
 	}()
@@ -96,26 +97,26 @@ func newLogger(level string) (*zap.Logger, error) {
 
 	cfg := zap.NewProductionConfig()
 	if err := cfg.Level.UnmarshalText([]byte(level)); err != nil {
-		return nil, errors.Join(errors.New("invalid log level"), err)
+		return nil, fmt.Errorf("%w: %w", errInvalidLogLevel, err)
 	}
+
 	cfg.EncoderConfig.TimeKey = "timestamp"
 	cfg.EncoderConfig.MessageKey = "message"
 	cfg.EncoderConfig.LevelKey = "level"
 	cfg.EncoderConfig.CallerKey = "caller"
 
-	return cfg.Build()
+	logger, err := cfg.Build()
+	if err != nil {
+		return nil, fmt.Errorf("build zap logger: %w", err)
+	}
+
+	return logger, nil
 }
 
 type options struct {
 	configPath string
 	logLevel   string
 	mode       string
-}
-
-var validModes = map[string]struct{}{
-	"dry-run": {},
-	"enforce": {},
-	"noop":    {},
 }
 
 func parseArgs(args []string) (options, error) {
@@ -128,15 +129,16 @@ func parseArgs(args []string) (options, error) {
 	fs.StringVar(&opts.mode, "mode", "dry-run", "Controller mode to use (dry-run, enforce, noop)")
 
 	if err := fs.Parse(args); err != nil {
-		return options{}, err
+		return options{}, fmt.Errorf("parse CLI arguments: %w", err)
 	}
 
 	opts.mode = strings.ToLower(strings.TrimSpace(opts.mode))
 	if opts.mode == "" {
 		opts.mode = "dry-run"
 	}
-	if _, ok := validModes[opts.mode]; !ok {
-		return options{}, fmt.Errorf("unsupported mode %q (supported: dry-run, enforce, noop)", opts.mode)
+
+	if !isValidMode(opts.mode) {
+		return options{}, fmt.Errorf("%w: %q (supported: dry-run, enforce, noop)", errUnsupportedMode, opts.mode)
 	}
 
 	opts.logLevel = strings.TrimSpace(opts.logLevel)
@@ -150,4 +152,26 @@ func parseArgs(args []string) (options, error) {
 	}
 
 	return opts, nil
+}
+
+var (
+	errInvalidLogLevel = errors.New("invalid log level")
+	errUnsupportedMode = errors.New("unsupported mode provided")
+)
+
+func defaultControllerFactory(mode string) adapt.Controller { //nolint:ireturn // factory intentionally hides controller implementation
+	return adapt.NewNoopController(mode)
+}
+
+func defaultIMDSFactory() imds.Client { //nolint:ireturn // returns interface to support substitutable IMDS clients
+	return imds.NewDummyClient()
+}
+
+func isValidMode(mode string) bool {
+	switch mode {
+	case "dry-run", "enforce", "noop":
+		return true
+	default:
+		return false
+	}
 }

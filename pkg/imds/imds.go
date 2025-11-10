@@ -15,8 +15,8 @@ type Client interface {
 type DummyClient struct{}
 
 // NewDummyClient returns a Client that supplies deterministic dummy values.
-func NewDummyClient() Client {
-	return DummyClient{}
+func NewDummyClient() *DummyClient {
+	return &DummyClient{}
 }
 
 // Region returns a synthetic region identifier for development use.
