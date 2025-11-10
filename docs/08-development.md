@@ -52,6 +52,18 @@ docker run --rm oci-cpu-shaper:test --mode dry-run
 
 After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made.
 
+## §11.2 CPU Weight Integration Suite
+
+End-to-end responsiveness tests live under `tests/integration/` and run with the `integration` build tag. They build the rootful container image, compile a static CPU hog helper, and launch the image alongside an `alpine` competitor constrained to the same CPU. The harness measures each container's `cpu.weight` and `cpu.stat` usage to assert the heavier workload receives at least five times the CPU time, ensuring the runtime honours the responsiveness guarantees described in §§5, 9, and 11.
+
+Run the suite on a Linux host with Docker or Podman configured for cgroup v2 (verify with `docker info --format '{{.CgroupVersion}}'` or by checking `/sys/fs/cgroup/cgroup.controllers` for the `cpu` entry). Because the harness builds and runs containers locally, execute it from the repository root with elevated privileges when necessary:
+
+```bash
+go test -tags=integration -v ./tests/integration/...
+```
+
+The command writes verbose output to `stdout` and mirrors the GitHub Actions job, which captures the logs as an artifact for auditability. When iterating locally, rerun the suite after modifying container entrypoints, CPU-tuning flags, or workload scripts to preserve the CI-required ≥85% coverage baseline while keeping responsiveness guardrails intact.
+
 ## §11 Coverage Workflow
 
 Follow this loop to keep the repository above the CI-required 85 percent statement coverage floor (§14):
