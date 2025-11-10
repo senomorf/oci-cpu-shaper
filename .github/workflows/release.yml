@@ -48,15 +48,18 @@ jobs:
           file: deploy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Generate SBOM
-        id: syft
-        uses: anchore/syft-action@v0.15.0
+        id: sbom
+        uses: anchore/sbom-action@v0.20.9
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
-          output: spdx-json=sbom-${{ github.ref_name }}.spdx.json
+          output-file: sbom-${{ github.ref_name }}.spdx.json
+          format: spdx-json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
