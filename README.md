@@ -1,1 +1,23 @@
-# oci-cpu-shaper
+# OCI CPU Shaper
+
+OCI CPU Shaper is an emerging toolkit for shaping CPU utilization of workloads running on Oracle Cloud Infrastructure. The project is in its early stages; the current repository layout and documentation scaffolding are intended to guide future development.
+
+## Repository Structure
+
+- `cmd/shaper/` – Entry point for the CLI binary that applies CPU shaping logic.
+- `pkg/` – Shared packages divided into domains for metadata (`imds`), OCI integrations (`oci`), estimation (`est`), shaping algorithms (`shape`), adaptation (`adapt`), and HTTP helpers (`http`).
+- `internal/buildinfo/` – Build metadata embedded into binaries.
+- `configs/` – Example configuration files and templates.
+- `deploy/` – Deployment manifests and automation assets.
+- `docs/` – Living documentation; begin with [`00-overview.md`](docs/00-overview.md).
+
+## Contribution Guidelines
+
+Contributions are welcome! Please:
+
+1. Open an issue to discuss significant features or changes.
+2. Follow Go best practices and the formatting rules defined in `.editorconfig`.
+3. Include tests and documentation updates when adding new functionality.
+4. Use conventional commit messages where possible to ease changelog generation.
+
+Refer to the documentation in the `docs/` directory for deeper architectural and operational context as it becomes available.
