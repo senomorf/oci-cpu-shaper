@@ -8,7 +8,7 @@ This guide covers the tooling expectations and command shortcuts for contributin
 - `make` for running the provided automation targets.
 - [`golangci-lint`](https://golangci-lint.run/) for linting.
 
-Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v2.6.1 and `gofumpt` v0.9.2. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable.
+Run `make tools` to install or upgrade the pinned `golangci-lint` release with `go install`, and to ensure the repository-standard `gofumpt` binary is available. The helper target keeps local tooling aligned with CI, which currently runs `golangci-lint` v2.6.1 and `gofumpt` v0.9.2. Ensure `$GOBIN` (or `$(go env GOPATH)/bin` when `GOBIN` is unset) is on your `PATH` so the installed binaries are discoverable. Developers using `mise`/`asdf` can achieve the same alignment by running `mise install`, because `.tool-versions` now pins the same `golangci-lint` and `gofumpt` versions referenced in §14.
 
 ## Command Reference
 

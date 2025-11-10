@@ -17,10 +17,11 @@ type NoopController struct {
 }
 
 // NewNoopController constructs a controller placeholder used during early development.
-func NewNoopController(mode string) Controller {
+func NewNoopController(mode string) *NoopController {
 	if mode == "" {
 		mode = "noop"
 	}
+
 	return &NoopController{mode: mode}
 }
 
