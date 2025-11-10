@@ -3,6 +3,11 @@ SHELL := /bin/bash
 GO ?= go
 MIN_COVERAGE ?= 85.0
 
+MODULE := $(shell $(GO) list -m 2>/dev/null)
+PKGS := $(shell $(GO) list ./... 2>/dev/null)
+COVERAGE_EXCLUDES ?= $(if $(MODULE),$(MODULE)/cmd/agentscheck,)
+COVERAGE_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(PKGS))
+
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOFUMPT_VERSION ?= 0.9.2
 
@@ -15,7 +20,6 @@ GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
-PKGS := $(shell $(GO) list ./... 2>/dev/null)
 
 .PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage
 
@@ -69,8 +73,15 @@ coverage:
 	@set -euo pipefail; \
 	if [ -z "$(strip $(PKGS))" ]; then \
 		echo "No Go packages found; skipping coverage."; \
+	elif [ -z "$(strip $(COVERAGE_PKGS))" ]; then \
+		echo "No Go packages selected for coverage after exclusions; adjust COVERAGE_EXCLUDES."; \
+		exit 1; \
 	else \
-		$(GO) test -race -covermode=atomic -coverprofile=coverage.out $(PKGS); \
+		excluded="$(strip $(COVERAGE_EXCLUDES))"; \
+		if [ -n "$$excluded" ]; then \
+			echo "Excluding packages from coverage: $$excluded"; \
+		fi; \
+		$(GO) test -race -covermode=atomic -coverprofile=coverage.out $(COVERAGE_PKGS); \
 		TOTAL=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$NF}'); \
 		if [ -n "$$TOTAL" ]; then \
 			echo "Total coverage: $$TOTAL"; \
@@ -83,7 +94,6 @@ coverage:
 			echo "Coverage summary unavailable"; \
 		fi; \
 	fi
-
 agents:
 	$(GO) run ./cmd/agentscheck
 

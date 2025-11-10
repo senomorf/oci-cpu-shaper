@@ -132,8 +132,8 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 }
 
 func TestRunSuccessfulPath(t *testing.T) {
-	t.Parallel()
-
+	// These run() integration tests avoid t.Parallel() because overrideBuildInfo mutates
+	// shared package-level metadata that would race with concurrent executions under -race.
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
@@ -173,8 +173,6 @@ func TestRunSuccessfulPath(t *testing.T) {
 }
 
 func TestRunReturnsParseErrorExitCode(t *testing.T) {
-	t.Parallel()
-
 	var stderr bytes.Buffer
 
 	exitCode := run(t.Context(), []string{"--mode", "invalid"}, defaultRunDeps(), &stderr)
@@ -188,8 +186,6 @@ func TestRunReturnsParseErrorExitCode(t *testing.T) {
 }
 
 func TestRunReturnsLoggerConfigurationError(t *testing.T) {
-	t.Parallel()
-
 	var stderr bytes.Buffer
 
 	deps := defaultRunDeps()
@@ -208,8 +204,6 @@ func TestRunReturnsLoggerConfigurationError(t *testing.T) {
 }
 
 func TestRunHandlesControllerError(t *testing.T) {
-	t.Parallel()
-
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
