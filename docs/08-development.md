@@ -36,4 +36,50 @@ These steps help keep changes consistent and maintainable across the project.
 
 ## §8.4 Scoped AGENTS Policy
 
-Create or update scoped `AGENTS.md` files whenever a directory needs guidance that differs from or expands on the repository root instructions. Keep each file tightly focused on actionable rules for that directory tree, and prefer linking to canonical docs (such as this development guide) instead of duplicating prose. When refactoring or adding new areas of the codebase, audit existing scopes, remove obsolete guidance, and consolidate overlapping notes so the instructions stay concise and discoverable.
+Create or update scoped `AGENTS.md` files whenever a directory needs guidance that differs from or expands on the repository root instructions. Keep each file tightly focused on actionable rules for that directory tree, and prefer linking to canonical docs (such as this development guide) instead of duplicating prose. When refactoring or adding new areas of the codebase, audit existing scopes, remove obsolete guidance, and consolidate overlapping notes so the instructions stay concise and discoverable. Run `make agents` before submitting changes to confirm every Go package directory inherits the appropriate guidance and that scope headers match the directory layout.
+
+## §8.5 Directory Change Checklist
+
+Any change that creates, renames, or deletes a directory with Go code **must** review AGENTS coverage:
+
+1. Identify which existing `AGENTS.md` file governs the directory tree.
+2. Update or add scoped instructions that reflect the new layout and remove references to paths that no longer exist.
+3. Re-run `make agents` to ensure the repository-wide policy check passes and capture any stale references that need pruning.
+
+For broader refactors, scan neighbouring scopes as well—moving files often requires adjusting multiple `AGENTS.md` files so contributors never encounter contradictory guidance.
+
+## §8.6 Token-Optimised AGENTS Templates
+
+Keep `AGENTS.md` content short and directive so nested scopes are cheap to load. Start from these templates when seeding new subtrees:
+
+- **Go package subtree**
+
+  ```markdown
+  # AGENTS
+
+  ## Scope: `path/to/pkg/`
+  - One line per enforced rule; reference §§ from the development plan instead of repeating rationale.
+  - Note any testing or tooling expectations unique to the subtree.
+  ```
+
+- **Documentation subtree**
+
+  ```markdown
+  # AGENTS
+
+  ## Scope: `docs/new-area/`
+  - Tie headings back to the numbered sections in §8.
+  - Link to canonical references instead of duplicating configuration snippets.
+  ```
+
+- **Aggregating scopes**
+
+  ```markdown
+  # AGENTS
+
+  ## Scope: `services/`
+  - List the child directories that have their own `AGENTS.md` files and the key behaviour that differs from the parent scope.
+  - Remind contributors which shared policies from the root still apply.
+  ```
+
+Adapt the bullet points to the smallest set of actionable, testable rules; long narrative guidance should live in the numbered docs and be linked from the AGENTS files instead of copied verbatim.

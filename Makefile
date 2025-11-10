@@ -13,7 +13,7 @@ GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint
+.PHONY: fmt lint test build check tools ensure-golangci-lint agents
 
 tools: ensure-golangci-lint
 
@@ -46,7 +46,10 @@ test:
 		$(GO) test -race $(PKGS); \
 	fi
 
-check: lint test
+agents:
+	$(GO) run ./cmd/agentscheck
+
+check: lint test agents
 
 build:
 	$(GO) build ./...

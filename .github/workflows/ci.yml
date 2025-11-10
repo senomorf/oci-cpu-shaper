@@ -4,6 +4,24 @@ on:
   pull_request:
 
 jobs:
+  agents:
+    name: agents policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Verify AGENTS scopes
+        run: make agents
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
