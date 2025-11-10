@@ -1,4 +1,5 @@
 version: 2
+
 run:
   timeout: 5m
   tests: true
@@ -11,12 +12,6 @@ linters:
     - revive
     - errcheck
     - unused
-
-formatters:
-  enable:
-    - gofmt
-    - goimports
-
 issues:
   exclude-use-default: false
   max-same-issues: 3
@@ -29,7 +24,3 @@ linters-settings:
       - name: exported
         arguments:
           - "allowMembers"
-
-formatters-settings:
-  gofmt:
-    simplify: true
