@@ -35,6 +35,28 @@ Running the `test` target enables the Go race detector by default, helping detec
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.
 
+## §11 Coverage Workflow
+
+Follow this loop to keep the repository above the CI-required 30 percent statement coverage floor (§14):
+
+1. Write or update unit, integration, or smoke tests alongside code changes so new logic is executable under `go test` (§§5, 9, 11).
+2. Run `make coverage` to generate `coverage.out`, review the reported percentage, and inspect uncovered packages with `go tool cover -func coverage.out` when the value trends downward.
+3. Patch gaps immediately—prefer focused tests that exercise failure paths and concurrency edges instead of broad golden snapshots.
+4. Capture any notable coverage shifts (both increases and decreases) in `docs/CHANGELOG.md` so reviewers can audit the impact alongside functional notes (§12).
+
+Committers should only merge when coverage meets or exceeds the automated threshold and the new tests clearly document the intended behaviour. When a change legitimately lowers coverage (for example, introducing defensive code that is hard to trigger), document the rationale in the changelog and open a follow-up issue to backfill tests.
+
+## §11.1 Integration Test Expectations
+
+Integration tests complement unit coverage by validating interactions between packages and external systems:
+
+- Prefer table-driven tests using the public APIs wired through `cmd/shaper` so CLI flows remain measurable (§5.2).
+- Use the existing dummy IMDS server and controller harnesses to exercise multi-component workflows; extend them instead of building bespoke fixtures (§§5, 9).
+- Gate new features on end-to-end assertions that demonstrate the behaviour across controller states, rate limiting, and failure handling. When integration coverage is impractical, describe the manual verification steps in the pull request and track automation debt in an issue.
+- Keep integration suites fast—tests should reuse shared setup helpers and run within CI timeouts while still contributing to the overall coverage budget.
+
+Document meaningful integration suites and their expected coverage deltas in the changelog so downstream operators understand the verification story.
+
 ## Optional Git Hooks
 
 To run formatting and linting automatically before pushing, opt in to the provided Git hook template:

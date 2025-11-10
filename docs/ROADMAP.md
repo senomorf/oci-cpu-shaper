@@ -3,6 +3,7 @@
 ## 14.1 CI automation
 - Run `golangci-lint` with the repository defaults on every pull request to catch regressions early (§14).
 - Execute `go test ./... -race` for all targets so concurrency issues surface during review (§14).
+- Follow the [§11 Coverage Workflow](08-development.md#11-coverage-workflow) to keep statement coverage at or above the CI floor during feature work (§14).
 - Block merges on CI completion to keep `main` green.
 - Cache Go modules across CI jobs so linting and testing complete quickly while using the latest Go toolchain (§14).
 
