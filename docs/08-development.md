@@ -21,9 +21,10 @@ The repository includes a `Makefile` that wraps the most common development task
 | `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml`. |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
+| `make coverage` | Generate a race-enabled coverage profile and print the total percentage (CI enforces ≥30%). |
 | `make build` | Compile all packages to validate build readiness. |
 
-Running the `test` target enables the Go race detector by default, helping detect data races early during development.
+Running the `test` target enables the Go race detector by default, helping detect data races early during development. Use `make coverage` before pushing to confirm your changes keep statement coverage at or above the CI threshold; the command writes `coverage.out` and reports the aggregate percentage using `go tool cover`. CI currently requires at least 30 percent statement coverage, matching the repository's existing baseline.
 
 ## Suggested Workflow
 

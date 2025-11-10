@@ -10,6 +10,7 @@
 - GitHub Actions workflows covering `golangci-lint` and race-enabled `go test` runs on pull requests (§14).
 - Automated release pipeline publishing multi-architecture images with Syft-generated SPDX SBOM artifacts (§14).
 - Unit coverage for IMDS dummy metadata, controller mode wiring, and CLI bootstrap flows via dependency-injected smoke tests (§§5, 9, 11).
+- Race-enabled `make coverage` target and CI enforcement requiring at least 30% statement coverage before merging (§14).
 
 ### Changed
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
