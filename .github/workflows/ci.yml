@@ -145,7 +145,18 @@ jobs:
             go.sum
 
       - name: Verify Docker cgroup version
-        run: docker info --format 'Cgroup version: {{.CgroupVersion}}'
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          version=$(docker info --format '{{.CgroupVersion}}')
+          if [ "$version" != "2" ]; then
+            echo "::error::integration suite requires cgroup v2 (detected ${version:-unknown})"
+            exit 1
+          fi
+
+          echo "Cgroup version: $version"
 
       - name: Run integration tests
         run: |
