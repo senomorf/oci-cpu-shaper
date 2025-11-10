@@ -17,6 +17,11 @@ type issue struct {
 	message string
 }
 
+var (
+	scopeHeaderPattern   = regexp.MustCompile("^##\\s+Scope:\\s+`([^`]+)`\\s*$")
+	tickDirectoryPattern = regexp.MustCompile("`([^`]+/)`")
+)
+
 func main() {
 	rootFlag := flag.String("root", ".", "repository root to scan")
 
@@ -43,19 +48,23 @@ func main() {
 
 		fmt.Fprintf(os.Stderr, "AGENTS policy violations detected:\n")
 
-		for _, is := range issues {
-			if is.path == "" {
-				fmt.Fprintf(os.Stderr, " - %s\n", is.message)
+		for _, agentIssue := range issues {
+			if agentIssue.path == "" {
+				fmt.Fprintf(os.Stderr, " - %s\n", agentIssue.message)
+
 				continue
 			}
 
-			fmt.Fprintf(os.Stderr, " - %s: %s\n", is.path, is.message)
+			fmt.Fprintf(os.Stderr, " - %s: %s\n", agentIssue.path, agentIssue.message)
 		}
 
 		os.Exit(1)
 	}
 
-	fmt.Fprintln(os.Stdout, "AGENTS policy check passed")
+	_, writeErr := fmt.Fprintln(os.Stdout, "AGENTS policy check passed")
+	if writeErr != nil {
+		exitWithError(fmt.Errorf("write success message: %w", writeErr))
+	}
 }
 
 func runCheck(root string) ([]issue, error) {
@@ -78,7 +87,10 @@ func runCheck(root string) ([]issue, error) {
 				return nil, fmt.Errorf("determine relative path for %q: %w", pkgDir, relErr)
 			}
 
-			issues = append(issues, issue{path: rel, message: "missing AGENTS.md; no scoped instructions found"})
+			issues = append(
+				issues,
+				issue{path: rel, message: "missing AGENTS.md; no scoped instructions found"},
+			)
 		}
 	}
 
@@ -103,13 +115,13 @@ func discoverAgents(root string) (map[string]struct{}, []string, error) {
 	agents := make(map[string]struct{})
 	files := make([]string, 0)
 
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("inspect %q: %w", path, err)
 		}
 
-		if d.IsDir() {
-			switch d.Name() {
+		if entry.IsDir() {
+			switch entry.Name() {
 			case ".git", "vendor":
 				if path != root {
 					return fs.SkipDir
@@ -119,7 +131,7 @@ func discoverAgents(root string) (map[string]struct{}, []string, error) {
 			return nil
 		}
 
-		if strings.EqualFold(d.Name(), "AGENTS.md") {
+		if strings.EqualFold(entry.Name(), "AGENTS.md") {
 			dir := filepath.Dir(path)
 			agents[dir] = struct{}{}
 
@@ -140,13 +152,13 @@ func discoverAgents(root string) (map[string]struct{}, []string, error) {
 func discoverGoPackages(root string) (map[string]struct{}, error) {
 	packages := make(map[string]struct{})
 
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("inspect %q: %w", path, err)
 		}
 
-		if d.IsDir() {
-			switch d.Name() {
+		if entry.IsDir() {
+			switch entry.Name() {
 			case ".git", "vendor":
 				if path != root {
 					return fs.SkipDir
@@ -156,7 +168,7 @@ func discoverGoPackages(root string) (map[string]struct{}, error) {
 			return nil
 		}
 
-		if filepath.Ext(d.Name()) == ".go" {
+		if filepath.Ext(entry.Name()) == ".go" {
 			dir := filepath.Dir(path)
 			packages[dir] = struct{}{}
 		}
@@ -205,49 +217,85 @@ func validateAgent(path, root string) ([]issue, error) {
 	}
 
 	expectedScope := normalizeScope(relDir)
-	scopeRe := regexp.MustCompile("^##\\s+Scope:\\s+`([^`]+)`\\s*$")
-	tickDirRe := regexp.MustCompile("`([^`]+/)`")
-
 	scopeValidated := false
 	issues := make([]issue, 0)
 
 	for line := range strings.SplitSeq(string(contents), "\n") {
-		matches := scopeRe.FindStringSubmatch(line)
-		if matches != nil {
+		matched, scopeIssues := validateScopeLine(line, expectedScope, relDir)
+		if matched {
 			scopeValidated = true
-
-			actual := normalizeScope(matches[1])
-			if expectedScope != "" && expectedScope != actual {
-				issues = append(issues, issue{path: relDir, message: fmt.Sprintf("scope header mismatch: expected `%s`", expectedScope)})
-			}
 		}
 
-		for _, match := range tickDirRe.FindAllStringSubmatch(line, -1) {
-			target := strings.TrimSuffix(match[1], "/")
-			if target == "" {
-				continue
-			}
+		issues = append(issues, scopeIssues...)
 
-			full := filepath.Join(root, target)
-			stat, statErr := os.Stat(full)
-
-			if errors.Is(statErr, os.ErrNotExist) {
-				issues = append(issues, issue{path: relDir, message: fmt.Sprintf("references missing directory `%s/`", match[1])})
-				continue
-			}
-
-			if statErr != nil {
-				return nil, fmt.Errorf("stat %q referenced from %q: %w", full, path, statErr)
-			}
-
-			if !stat.IsDir() {
-				issues = append(issues, issue{path: relDir, message: fmt.Sprintf("references `%s/` but target is not a directory", match[1])})
-			}
+		referencedIssues, refErr := validateTickReferences(line, root, relDir, path)
+		if refErr != nil {
+			return nil, refErr
 		}
+
+		issues = append(issues, referencedIssues...)
 	}
 
 	if expectedScope != "" && !scopeValidated {
 		issues = append(issues, issue{path: relDir, message: "missing `## Scope:` header"})
+	}
+
+	return issues, nil
+}
+
+func validateScopeLine(line, expectedScope, relDir string) (bool, []issue) {
+	matches := scopeHeaderPattern.FindStringSubmatch(line)
+	if matches == nil {
+		return false, nil
+	}
+
+	actual := normalizeScope(matches[1])
+	if expectedScope != "" && expectedScope != actual {
+		return true, []issue{{
+			path:    relDir,
+			message: fmt.Sprintf("scope header mismatch: expected `%s`", expectedScope),
+		}}
+	}
+
+	return true, nil
+}
+
+func validateTickReferences(line, root, relDir, agentPath string) ([]issue, error) {
+	matches := tickDirectoryPattern.FindAllStringSubmatch(line, -1)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+
+	issues := make([]issue, 0, len(matches))
+
+	for _, match := range matches {
+		target := strings.TrimSuffix(match[1], "/")
+		if target == "" {
+			continue
+		}
+
+		full := filepath.Join(root, target)
+		stat, statErr := os.Stat(full)
+
+		if errors.Is(statErr, os.ErrNotExist) {
+			issues = append(issues, issue{
+				path:    relDir,
+				message: fmt.Sprintf("references missing directory `%s/`", match[1]),
+			})
+
+			continue
+		}
+
+		if statErr != nil {
+			return nil, fmt.Errorf("stat %q referenced from %q: %w", full, agentPath, statErr)
+		}
+
+		if !stat.IsDir() {
+			issues = append(issues, issue{
+				path:    relDir,
+				message: fmt.Sprintf("references `%s/` but target is not a directory", match[1]),
+			})
+		}
 	}
 
 	return issues, nil
