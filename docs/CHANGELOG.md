@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Distroless Docker targets, Compose manifests, and runtime scripts for Komodo Mode A (§6).
 - Documented bootstrap CLI flags, configuration layout, and diagnostics in §§5 and 9 references.
 
 ### Changed
