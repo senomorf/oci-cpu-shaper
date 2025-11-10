@@ -2,6 +2,8 @@ SHELL := /bin/bash
 
 GO ?= go
 MIN_COVERAGE ?= 85.0
+COVERAGE_PROFILE ?= coverage.out
+COVERAGE_SUMMARY ?= coverage.txt
 
 MODULE := $(shell $(GO) list -m 2>/dev/null)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
@@ -81,12 +83,13 @@ coverage:
 		if [ -n "$$excluded" ]; then \
 			echo "Excluding packages from coverage: $$excluded"; \
 		fi; \
-		$(GO) test -race -covermode=atomic -coverprofile=coverage.out $(COVERAGE_PKGS); \
-		TOTAL=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$NF}'); \
+		$(GO) test -race -covermode=atomic -coverprofile=$(COVERAGE_PROFILE) $(COVERAGE_PKGS); \
+		$(GO) tool cover -func=$(COVERAGE_PROFILE) | tee $(COVERAGE_SUMMARY); \
+		TOTAL=$$(awk '/^total:/ {total=$$NF} END {print total}' $(COVERAGE_SUMMARY)); \
 		if [ -n "$$TOTAL" ]; then \
 			echo "Total coverage: $$TOTAL"; \
 			COVERAGE_VALUE=$$(printf '%s' "$$TOTAL" | tr -d '%'); \
-			if ! awk -v cov="$$COVERAGE_VALUE" -v min="$(MIN_COVERAGE)" 'BEGIN {if (cov+0 >= min+0) exit 0; exit 1}'; then \
+			if ! awk -v cov="$$COVERAGE_VALUE" -v min="$(MIN_COVERAGE)" 'BEGIN {if (cov+0 >= min+0) exit 0; exit 1}' ; then \
 				echo "Coverage $${COVERAGE_VALUE}% is below required $(MIN_COVERAGE)%"; \
 				exit 1; \
 			fi; \
