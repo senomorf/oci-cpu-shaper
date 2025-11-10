@@ -41,7 +41,8 @@ func defaultRunDeps() runDeps {
 func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
 	opts, err := parseArgs(args)
 	if err != nil {
-		if _, ferr := fmt.Fprintf(stderr, "%v\n", err); ferr != nil {
+		_, ferr := fmt.Fprintf(stderr, "%v\n", err)
+		if ferr != nil {
 			return 2
 		}
 
@@ -50,7 +51,8 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 
 	logger, err := deps.newLogger(opts.logLevel)
 	if err != nil {
-		if _, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err); ferr != nil {
+		_, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err)
+		if ferr != nil {
 			return 1
 		}
 
@@ -82,8 +84,9 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		zap.String("controllerMode", controller.Mode()),
 	)
 
-	if err := controller.Run(ctx); err != nil {
-		logger.Error("controller execution failed", zap.Error(err))
+	runErr := controller.Run(ctx)
+	if runErr != nil {
+		logger.Error("controller execution failed", zap.Error(runErr))
 		return 1
 	}
 

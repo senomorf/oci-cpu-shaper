@@ -214,6 +214,7 @@ func TestRunHandlesControllerError(t *testing.T) {
 	logger := zap.New(core)
 
 	var ctrl stubController
+
 	ctrl.runErr = errStubControllerRun
 
 	deps := defaultRunDeps()

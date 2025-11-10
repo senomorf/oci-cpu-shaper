@@ -19,6 +19,7 @@ type issue struct {
 
 func main() {
 	rootFlag := flag.String("root", ".", "repository root to scan")
+
 	flag.Parse()
 
 	rootAbs, err := filepath.Abs(*rootFlag)
@@ -210,8 +211,7 @@ func validateAgent(path, root string) ([]issue, error) {
 	scopeValidated := false
 	issues := make([]issue, 0)
 
-	lines := strings.Split(string(contents), "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(string(contents), "\n") {
 		matches := scopeRe.FindStringSubmatch(line)
 		if matches != nil {
 			scopeValidated = true
