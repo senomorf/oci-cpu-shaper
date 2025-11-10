@@ -34,6 +34,16 @@ Running the `test` target enables the Go race detector by default, helping detec
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.
 
+## Container Smoke and SBOM Checks
+
+Every pull request also exercises the container delivery path. The CI workflow builds the image with `docker buildx build` using the `deploy/Dockerfile`, reuses GitHub Actions cache-backed layers for faster rebuilds, and tags the result locally as `oci-cpu-shaper:test`. A dry-run smoke test executes the packaged binary:
+
+```bash
+docker run --rm oci-cpu-shaper:test --mode dry-run
+```
+
+After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made.
+
 ## Optional Git Hooks
 
 To run formatting and linting automatically before pushing, opt in to the provided Git hook template:

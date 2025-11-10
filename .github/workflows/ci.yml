@@ -60,3 +60,55 @@ jobs:
 
       - name: Run tests
         run: go test ./... -race
+
+  container-smoke:
+    name: container smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare build metadata
+        id: build-meta
+        run: |
+          echo "build-date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          tags: oci-cpu-shaper:test
+          load: true
+          cache-from: type=gha,scope=ci-container-smoke
+          cache-to: type=gha,scope=ci-container-smoke,mode=max
+          build-args: |
+            VERSION=dev
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.build-meta.outputs.build-date }}
+
+      - name: Smoke test dry-run mode
+        run: docker run --rm oci-cpu-shaper:test --mode dry-run
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: oci-cpu-shaper:test
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-sbom
+          path: sbom.spdx.json
+
+      - name: Scan image for vulnerabilities
+        uses: anchore/scan-action@v4
+        with:
+          image: oci-cpu-shaper:test
+          fail-build: true
+          severity-cutoff: critical
