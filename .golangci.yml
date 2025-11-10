@@ -3,6 +3,9 @@ run:
   tests: true
 linters:
   default: all
+  disable:
+   - cyclop
+   - depguard
 issues:
   max-issues-per-linter: 0
   max-same-issues: 3
