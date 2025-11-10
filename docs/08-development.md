@@ -8,10 +8,10 @@ This guide covers the tooling expectations and command shortcuts for contributin
 - `make` for running the provided automation targets.
 - [`golangci-lint`](https://golangci-lint.run/) for linting.
 
-Install `golangci-lint` using the upstream installation script:
+Install `golangci-lint` using the upstream installation script with the repository's pinned release:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v1.59.1
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v1.64.8
 ```
 
 Alternatively, use your package manager or download a pre-built archive from the project's releases page.
