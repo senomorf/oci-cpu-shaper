@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+printf '\n[pre-push] Running gofmt/gofumpt...\n'
+make fmt
+
+if ! git diff --quiet --exit-code; then
+    echo "[pre-push] Formatting updated files. Review, stage, and commit the changes before pushing."
+    exit 1
+fi
+
+printf '\n[pre-push] Running golangci-lint...\n'
+make lint

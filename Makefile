@@ -3,6 +3,7 @@ SHELL := /bin/bash
 GO ?= go
 
 GOLANGCI_LINT_VERSION ?= v1.64.8
+GOFUMPT_VERSION ?= 0.6.0
 
 GO_BIN_PATH := $(shell $(GO) env GOBIN)
 ifeq ($(GO_BIN_PATH),)
@@ -11,11 +12,13 @@ endif
 
 GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
+GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
+GOFUMPT ?= $(GOFUMPT_BIN)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint agents
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents
 
-tools: ensure-golangci-lint
+tools: ensure-golangci-lint ensure-gofumpt
 
 ensure-golangci-lint:
 	@set -euo pipefail; \
@@ -29,15 +32,30 @@ ensure-golangci-lint:
 		$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION); \
 	fi
 
-fmt:
-	@if [ -z "$(strip $(PKGS))" ]; then \
-		echo "No Go packages found; skipping format."; \
+fmt: ensure-gofumpt
+	@set -euo pipefail; \
+	FILES="$$(find . -type f -name '*.go' -not -path './vendor/*' -not -path './.git/*' 2>/dev/null)"; \
+	if [ -z "$$FILES" ]; then \
+		echo "No Go files found; skipping format."; \
 	else \
-		$(GO) fmt $(PKGS); \
+		gofmt -w $$FILES; \
+		$(GOFUMPT) -w $$FILES; \
 	fi
 
 lint: ensure-golangci-lint
 	$(GOLANGCI_LINT) run
+
+ensure-gofumpt:
+	@set -euo pipefail; \
+	BIN="$(GOFUMPT_BIN)"; \
+	CURRENT_VERSION=""; \
+	if [ -x "$$BIN" ]; then \
+		CURRENT_VERSION="$$($$BIN -version 2>/dev/null | awk '{print $$2}')"; \
+	fi; \
+	if [ "$$CURRENT_VERSION" != "$(GOFUMPT_VERSION)" ]; then \
+		echo "Installing gofumpt v$(GOFUMPT_VERSION)"; \
+		$(GO) install mvdan.cc/gofumpt@v$(GOFUMPT_VERSION); \
+	fi
 
 test:
 	@if [ -z "$(strip $(PKGS))" ]; then \
