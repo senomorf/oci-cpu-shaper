@@ -41,10 +41,9 @@ type FileSource struct {
 
 // Snapshot implements the Source interface.
 func (f FileSource) Snapshot(ctx context.Context) (Snapshot, error) {
-	select {
-	case <-ctx.Done():
-		return Snapshot{}, ctx.Err()
-	default:
+	err := ctx.Err()
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("file source context: %w", err)
 	}
 
 	path := f.Path
@@ -54,14 +53,20 @@ func (f FileSource) Snapshot(ctx context.Context) (Snapshot, error) {
 
 	file, err := os.Open(path)
 	if err != nil {
-		return Snapshot{}, err
+		return Snapshot{}, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer file.Close()
 
-	snap, err := parseCPUStat(file)
-	if err != nil {
-		return Snapshot{}, err
+	snap, parseErr := parseCPUStat(file)
+	closeErr := file.Close()
+
+	if parseErr != nil {
+		return Snapshot{}, fmt.Errorf("parse %s: %w", path, parseErr)
 	}
+
+	if closeErr != nil {
+		return Snapshot{}, fmt.Errorf("close %s: %w", path, closeErr)
+	}
+
 	return snap, nil
 }
 
@@ -76,83 +81,135 @@ type Sampler struct {
 // DefaultInterval is used when a zero or negative interval is supplied.
 const DefaultInterval = time.Second
 
+const (
+	minimumCPUFields = 5
+	idleFieldIndex   = 3
+	ioWaitFieldIndex = 4
+)
+
+var (
+	ErrSamplerAlreadyStarted    = errors.New("est: sampler already started")
+	ErrUnexpectedProcStatFormat = errors.New("est: unexpected /proc/stat format")
+	ErrProcStatTooShort         = errors.New("est: /proc/stat cpu line too short")
+)
+
 // NewSampler constructs a Sampler using the provided Source and interval.
 func NewSampler(src Source, interval time.Duration) *Sampler {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
-	return &Sampler{
-		source:   src,
-		interval: interval,
-		now:      time.Now,
-	}
+
+	sampler := new(Sampler)
+	sampler.source = src
+	sampler.interval = interval
+	sampler.now = time.Now
+
+	return sampler
 }
 
 // Run begins sampling until the supplied context is cancelled. Observations are
 // delivered on the returned channel which is closed on exit.
 func (s *Sampler) Run(ctx context.Context) <-chan Observation {
-	ch := make(chan Observation, 1)
+	observations := make(chan Observation, 1)
+
 	if !s.started.CompareAndSwap(false, true) {
-		ch <- Observation{Err: errors.New("sampler already started")}
-		close(ch)
-		return ch
+		s.publishError(ctx, observations, ErrSamplerAlreadyStarted)
+		close(observations)
+
+		return observations
 	}
 
-	go func() {
-		defer close(ch)
+	go s.startSampling(ctx, observations)
 
-		src := s.source
-		if src == nil {
-			src = FileSource{}
-		}
-
-		last, err := src.Snapshot(ctx)
-		if err != nil {
-			select {
-			case ch <- Observation{Timestamp: s.now(), Err: err}:
-			case <-ctx.Done():
-			}
-			return
-		}
-
-		nowFn := s.now
-		if nowFn == nil {
-			nowFn = time.Now
-		}
-
-		ticker := time.NewTicker(s.interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				snap, err := src.Snapshot(ctx)
-				if err != nil {
-					select {
-					case ch <- Observation{Timestamp: nowFn(), Err: err}:
-					case <-ctx.Done():
-					}
-					continue
-				}
-
-				obs := buildObservation(nowFn(), last, snap)
-				last = snap
-
-				select {
-				case ch <- obs:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-
-	return ch
+	return observations
 }
 
-func buildObservation(ts time.Time, previous, current Snapshot) Observation {
+func (s *Sampler) startSampling(ctx context.Context, observations chan<- Observation) {
+	defer close(observations)
+
+	src := s.source
+	if src == nil {
+		src = FileSource{Path: ""}
+	}
+
+	last, err := src.Snapshot(ctx)
+	if err != nil {
+		s.publishError(ctx, observations, fmt.Errorf("initial snapshot: %w", err))
+
+		return
+	}
+
+	ticker := time.NewTicker(s.interval)
+	defer ticker.Stop()
+
+	s.sampleLoop(ctx, src, last, ticker, observations)
+}
+
+func (s *Sampler) sampleLoop(
+	ctx context.Context,
+	src Source,
+	last Snapshot,
+	ticker *time.Ticker,
+	observations chan<- Observation,
+) {
+	nowFn := s.timeSource()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			snap, err := src.Snapshot(ctx)
+			if err != nil {
+				s.publishError(ctx, observations, fmt.Errorf("sample snapshot: %w", err))
+
+				continue
+			}
+
+			obs := buildObservation(nowFn(), last, snap)
+			last = snap
+
+			if !s.publishObservation(ctx, observations, obs) {
+				return
+			}
+		}
+	}
+}
+
+func (s *Sampler) publishError(ctx context.Context, observations chan<- Observation, err error) {
+	observation := Observation{
+		Timestamp:    s.timeSource()(),
+		Utilisation:  0,
+		BusyJiffies:  0,
+		TotalJiffies: 0,
+		Err:          err,
+	}
+
+	s.publishObservation(ctx, observations, observation)
+}
+
+func (s *Sampler) publishObservation(
+	ctx context.Context,
+	observations chan<- Observation,
+	observation Observation,
+) bool {
+	select {
+	case observations <- observation:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (s *Sampler) timeSource() func() time.Time {
+	if s.now != nil {
+		return s.now
+	}
+
+	return time.Now
+}
+
+func buildObservation(timestamp time.Time, previous, current Snapshot) Observation {
 	totalDelta := diffCounter(previous.Total, current.Total)
 	idleDelta := diffCounter(previous.Idle, current.Idle)
 	busyDelta := uint64(0)
@@ -160,6 +217,7 @@ func buildObservation(ts time.Time, previous, current Snapshot) Observation {
 
 	if totalDelta > 0 && idleDelta <= totalDelta {
 		busyDelta = totalDelta - idleDelta
+
 		utilisation = float64(busyDelta) / float64(totalDelta)
 		if utilisation < 0 {
 			utilisation = 0
@@ -169,10 +227,11 @@ func buildObservation(ts time.Time, previous, current Snapshot) Observation {
 	}
 
 	return Observation{
-		Timestamp:    ts,
+		Timestamp:    timestamp,
 		Utilisation:  utilisation,
 		BusyJiffies:  busyDelta,
 		TotalJiffies: totalDelta,
+		Err:          nil,
 	}
 }
 
@@ -187,34 +246,41 @@ func diffCounter(previous, current uint64) uint64 {
 func parseCPUStat(r io.Reader) (Snapshot, error) {
 	scanner := bufio.NewScanner(r)
 	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return Snapshot{}, err
+		err := scanner.Err()
+		if err != nil {
+			return Snapshot{}, fmt.Errorf("scan cpu line: %w", err)
 		}
+
 		return Snapshot{}, io.EOF
 	}
 
 	line := scanner.Text()
 	if !strings.HasPrefix(line, "cpu ") {
-		return Snapshot{}, fmt.Errorf("unexpected /proc/stat format: %q", line)
+		return Snapshot{}, fmt.Errorf("%w: %q", ErrUnexpectedProcStatFormat, line)
 	}
 
 	fields := strings.Fields(line)
-	if len(fields) < 5 {
-		return Snapshot{}, fmt.Errorf("/proc/stat cpu line too short: %q", line)
+	if len(fields) < minimumCPUFields {
+		return Snapshot{}, fmt.Errorf("%w: %q", ErrProcStatTooShort, line)
 	}
 
-	var total uint64
-	var idle uint64
-	for i, field := range fields[1:] {
+	var (
+		total uint64
+		idle  uint64
+	)
+
+	for index, field := range fields[1:] {
 		value, err := strconv.ParseUint(field, 10, 64)
 		if err != nil {
-			return Snapshot{}, fmt.Errorf("parse field %d: %w", i+1, err)
+			return Snapshot{}, fmt.Errorf("parse field %d: %w", index+1, err)
 		}
+
 		total += value
-		if i == 3 { // idle
+		if index == idleFieldIndex {
 			idle += value
 		}
-		if i == 4 { // iowait counted as idle per kernel docs
+
+		if index == ioWaitFieldIndex {
 			idle += value
 		}
 	}

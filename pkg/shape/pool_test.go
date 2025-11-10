@@ -1,31 +1,41 @@
+//nolint:testpackage // tests require access to unexported hooks
 package shape
 
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestPoolAppliesDutyCycle(t *testing.T) {
+	t.Parallel()
+
 	pool, err := NewPool(1, 5*time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var mu sync.Mutex
-	var busyDurations []time.Duration
-	var sleepDurations []time.Duration
+	var (
+		metricsMu      sync.Mutex
+		busyDurations  []time.Duration
+		sleepDurations []time.Duration
+	)
 
 	pool.busyFunc = func(d time.Duration) {
-		mu.Lock()
+		metricsMu.Lock()
+
 		busyDurations = append(busyDurations, d)
-		mu.Unlock()
+
+		metricsMu.Unlock()
 	}
 	pool.sleepFunc = func(d time.Duration) {
-		mu.Lock()
+		metricsMu.Lock()
+
 		sleepDurations = append(sleepDurations, d)
-		mu.Unlock()
+
+		metricsMu.Unlock()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,40 +48,63 @@ func TestPoolAppliesDutyCycle(t *testing.T) {
 	cancel()
 	time.Sleep(2 * time.Millisecond)
 
-	mu.Lock()
+	metricsMu.Lock()
+	defer metricsMu.Unlock()
+
+	assertBusyAndSleepDurations(t, busyDurations, sleepDurations, 5*time.Millisecond)
+}
+
+func assertBusyAndSleepDurations(
+	t *testing.T,
+	busyDurations []time.Duration,
+	sleepDurations []time.Duration,
+	quantum time.Duration,
+) {
+	t.Helper()
+
 	if len(busyDurations) == 0 {
 		t.Fatalf("expected busy durations to be recorded")
 	}
+
 	if len(busyDurations) != len(sleepDurations) {
 		t.Fatalf("busy and sleep slices should match in length")
 	}
 
-	for i := range busyDurations {
-		if busyDurations[i] <= 0 {
+	for index := range busyDurations {
+		if busyDurations[index] <= 0 {
 			t.Fatalf("expected positive busy duration")
 		}
-		if busyDurations[i] >= 5*time.Millisecond {
-			t.Fatalf("busy duration should be less than quantum: got %v", busyDurations[i])
+
+		if busyDurations[index] >= quantum {
+			t.Fatalf("busy duration should be less than quantum: got %v", busyDurations[index])
 		}
-		if sleepDurations[i] <= 0 {
+
+		if sleepDurations[index] <= 0 {
 			t.Fatalf("expected positive sleep duration")
 		}
-		if busyDurations[i]+sleepDurations[i] != 5*time.Millisecond {
-			t.Fatalf("quantum not preserved: busy %v sleep %v", busyDurations[i], sleepDurations[i])
+
+		if busyDurations[index]+sleepDurations[index] != quantum {
+			t.Fatalf(
+				"quantum not preserved: busy %v sleep %v",
+				busyDurations[index],
+				sleepDurations[index],
+			)
 		}
 	}
-	mu.Unlock()
 }
 
 func TestPoolYieldsUnderZeroTarget(t *testing.T) {
+	t.Parallel()
+
 	pool, err := NewPool(1, time.Millisecond)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var yieldCount int
+	var yieldCount atomic.Int64
+
 	pool.yieldFunc = func() {
-		yieldCount++
+		yieldCount.Add(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,7 +117,27 @@ func TestPoolYieldsUnderZeroTarget(t *testing.T) {
 	cancel()
 	time.Sleep(2 * time.Millisecond)
 
-	if yieldCount == 0 {
+	if yieldCount.Load() == 0 {
 		t.Fatalf("expected yields when target is zero")
+	}
+}
+
+func TestBusyWaitHandlesDurations(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+
+	busyWait(0)
+
+	if elapsed := time.Since(start); elapsed > time.Millisecond {
+		t.Fatalf("busyWait should return immediately for zero duration, took %v", elapsed)
+	}
+
+	start = time.Now()
+
+	busyWait(200 * time.Microsecond)
+
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Fatalf("busyWait exceeded expected duration, took %v", elapsed)
 	}
 }

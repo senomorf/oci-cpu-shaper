@@ -3,6 +3,7 @@ package adapt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ type Controller interface {
 
 // DutyCycler is implemented by the shape worker pool.
 type DutyCycler interface {
-	SetTarget(float64)
+	SetTarget(target float64)
 	Target() float64
 }
 
@@ -56,19 +57,42 @@ type Config struct {
 }
 
 // DefaultConfig mirrors the initial implementation plan for control loop cadence.
-var DefaultConfig = Config{
-	TargetStart:      0.25,
-	TargetMin:        0.22,
-	TargetMax:        0.40,
-	StepUp:           0.02,
-	StepDown:         0.01,
-	FallbackTarget:   0.25,
-	GoalLow:          0.23,
-	GoalHigh:         0.30,
-	Interval:         time.Hour,
-	RelaxedInterval:  6 * time.Hour,
-	RelaxedThreshold: 0.28,
+const (
+	defaultModeLabel       = "normal"
+	defaultTargetStart     = 0.25
+	defaultTargetMin       = 0.22
+	defaultTargetMax       = 0.40
+	defaultStepUp          = 0.02
+	defaultStepDown        = 0.01
+	defaultFallbackTarget  = 0.25
+	defaultGoalLow         = 0.23
+	defaultGoalHigh        = 0.30
+	defaultRelaxedInterval = 6 * time.Hour
+	defaultRelaxedThresh   = 0.28
+)
+
+func DefaultConfig() Config {
+	return Config{
+		ResourceID:       "",
+		Mode:             defaultModeLabel,
+		TargetStart:      defaultTargetStart,
+		TargetMin:        defaultTargetMin,
+		TargetMax:        defaultTargetMax,
+		StepUp:           defaultStepUp,
+		StepDown:         defaultStepDown,
+		FallbackTarget:   defaultFallbackTarget,
+		GoalLow:          defaultGoalLow,
+		GoalHigh:         defaultGoalHigh,
+		Interval:         time.Hour,
+		RelaxedInterval:  defaultRelaxedInterval,
+		RelaxedThreshold: defaultRelaxedThresh,
+	}
 }
+
+var (
+	errMetricsClientRequired = errors.New("adapt: metrics client is required")
+	errDutyCyclerRequired    = errors.New("adapt: duty cycler is required")
+)
 
 // AdaptiveController orchestrates the normal/fallback state machine.
 type AdaptiveController struct {
@@ -89,63 +113,34 @@ type AdaptiveController struct {
 var _ Controller = (*AdaptiveController)(nil)
 
 // NewAdaptiveController wires together the OCI metrics client, estimator and shaper.
-func NewAdaptiveController(cfg Config, metrics oci.MetricsClient, estimator Estimator, shaper DutyCycler) (*AdaptiveController, error) {
+func NewAdaptiveController(
+	cfg Config,
+	metrics oci.MetricsClient,
+	estimator Estimator,
+	shaper DutyCycler,
+) (*AdaptiveController, error) {
 	if metrics == nil {
-		return nil, errors.New("metrics client is required")
+		return nil, errMetricsClientRequired
 	}
+
 	if shaper == nil {
-		return nil, errors.New("duty cycler is required")
-	}
-	if cfg.Interval <= 0 {
-		cfg.Interval = DefaultConfig.Interval
-	}
-	if cfg.RelaxedInterval <= 0 {
-		cfg.RelaxedInterval = DefaultConfig.RelaxedInterval
-	}
-	if cfg.TargetStart == 0 {
-		cfg.TargetStart = DefaultConfig.TargetStart
-	}
-	if cfg.TargetMin == 0 {
-		cfg.TargetMin = DefaultConfig.TargetMin
-	}
-	if cfg.TargetMax == 0 {
-		cfg.TargetMax = DefaultConfig.TargetMax
-	}
-	if cfg.StepUp == 0 {
-		cfg.StepUp = DefaultConfig.StepUp
-	}
-	if cfg.StepDown == 0 {
-		cfg.StepDown = DefaultConfig.StepDown
-	}
-	if cfg.FallbackTarget == 0 {
-		cfg.FallbackTarget = DefaultConfig.FallbackTarget
-	}
-	if cfg.GoalLow == 0 {
-		cfg.GoalLow = DefaultConfig.GoalLow
-	}
-	if cfg.GoalHigh == 0 {
-		cfg.GoalHigh = DefaultConfig.GoalHigh
-	}
-	if cfg.RelaxedThreshold == 0 {
-		cfg.RelaxedThreshold = DefaultConfig.RelaxedThreshold
+		return nil, errDutyCyclerRequired
 	}
 
-	mode := strings.TrimSpace(cfg.Mode)
-	if mode == "" {
-		mode = "normal"
-	}
+	normalized, mode := normalizeConfig(cfg)
 
-	controller := &AdaptiveController{
-		cfg:       cfg,
-		metrics:   metrics,
-		shaper:    shaper,
-		estimator: estimator,
-		state:     StateFallback,
-		target:    cfg.FallbackTarget,
-		interval:  cfg.Interval,
-		mode:      mode,
-	}
-	shaper.SetTarget(cfg.FallbackTarget)
+	controller := new(AdaptiveController)
+	controller.cfg = normalized
+	controller.metrics = metrics
+	controller.shaper = shaper
+	controller.estimator = estimator
+	controller.state = StateFallback
+	controller.target = normalized.FallbackTarget
+	controller.interval = normalized.Interval
+	controller.mode = mode
+
+	shaper.SetTarget(normalized.FallbackTarget)
+
 	return controller, nil
 }
 
@@ -161,20 +156,59 @@ func (c *AdaptiveController) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			err := ctx.Err()
+			if err != nil {
+				return fmt.Errorf("adaptive controller run: %w", err)
+			}
+
+			return nil
 		case <-ticker.C:
 			nextInterval := c.step(ctx)
 			if nextInterval <= 0 {
 				nextInterval = c.cfg.Interval
 			}
+
 			if nextInterval != c.interval {
 				ticker.Reset(nextInterval)
 			}
+
 			c.mu.Lock()
 			c.interval = nextInterval
 			c.mu.Unlock()
 		}
 	}
+}
+
+// State returns the current controller state.
+func (c *AdaptiveController) State() State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.state
+}
+
+// Target returns the shaper target tracked by the controller.
+func (c *AdaptiveController) Target() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.target
+}
+
+// LastP95 returns the last successful OCI P95 value.
+func (c *AdaptiveController) LastP95() float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.lastP95
+}
+
+// Mode returns the configured controller mode label.
+func (c *AdaptiveController) Mode() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.mode
 }
 
 func (c *AdaptiveController) consumeEstimator(ctx context.Context, ch <-chan est.Observation) {
@@ -202,6 +236,7 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 		c.lastErr = err
 		c.target = clamp(c.cfg.FallbackTarget, c.cfg.TargetMin, c.cfg.TargetMax)
 		c.shaper.SetTarget(c.target)
+
 		return c.cfg.Interval
 	}
 
@@ -227,45 +262,20 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 	if p95 >= c.cfg.RelaxedThreshold {
 		return c.cfg.RelaxedInterval
 	}
+
 	return c.cfg.Interval
 }
 
-// State returns the current controller state.
-func (c *AdaptiveController) State() State {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.state
-}
-
-// Target returns the shaper target tracked by the controller.
-func (c *AdaptiveController) Target() float64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.target
-}
-
-// LastP95 returns the last successful OCI P95 value.
-func (c *AdaptiveController) LastP95() float64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.lastP95
-}
-
-// Mode returns the configured controller mode label.
-func (c *AdaptiveController) Mode() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.mode
-}
-
-func clamp(v, min, max float64) float64 {
-	if v < min {
-		return min
+func clamp(value, lower, upper float64) float64 {
+	if value < lower {
+		return lower
 	}
-	if v > max {
-		return max
+
+	if value > upper {
+		return upper
 	}
-	return v
+
+	return value
 }
 
 // NoopController satisfies the Controller interface but performs no work.
@@ -276,11 +286,12 @@ type NoopController struct {
 var _ Controller = (*NoopController)(nil)
 
 // NewNoopController builds a controller that immediately returns without work.
-func NewNoopController(mode string) Controller {
+func NewNoopController(mode string) *NoopController {
 	trimmed := strings.TrimSpace(mode)
 	if trimmed == "" {
 		trimmed = "noop"
 	}
+
 	return &NoopController{mode: trimmed}
 }
 
@@ -289,3 +300,42 @@ func (n *NoopController) Run(context.Context) error { return nil }
 
 // Mode implements the Controller interface.
 func (n *NoopController) Mode() string { return n.mode }
+
+func normalizeConfig(cfg Config) (Config, string) {
+	defaults := DefaultConfig()
+
+	cfg.Interval = ensureDuration(cfg.Interval, defaults.Interval)
+	cfg.RelaxedInterval = ensureDuration(cfg.RelaxedInterval, defaults.RelaxedInterval)
+	cfg.TargetStart = ensureFloat(cfg.TargetStart, defaults.TargetStart)
+	cfg.TargetMin = ensureFloat(cfg.TargetMin, defaults.TargetMin)
+	cfg.TargetMax = ensureFloat(cfg.TargetMax, defaults.TargetMax)
+	cfg.StepUp = ensureFloat(cfg.StepUp, defaults.StepUp)
+	cfg.StepDown = ensureFloat(cfg.StepDown, defaults.StepDown)
+	cfg.FallbackTarget = ensureFloat(cfg.FallbackTarget, defaults.FallbackTarget)
+	cfg.GoalLow = ensureFloat(cfg.GoalLow, defaults.GoalLow)
+	cfg.GoalHigh = ensureFloat(cfg.GoalHigh, defaults.GoalHigh)
+	cfg.RelaxedThreshold = ensureFloat(cfg.RelaxedThreshold, defaults.RelaxedThreshold)
+
+	mode := strings.TrimSpace(cfg.Mode)
+	if mode == "" {
+		mode = defaultModeLabel
+	}
+
+	return cfg, mode
+}
+
+func ensureDuration(value, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+
+	return value
+}
+
+func ensureFloat(value, fallback float64) float64 {
+	if value == 0 {
+		return fallback
+	}
+
+	return value
+}

@@ -32,7 +32,7 @@ func main() {
 	var workerGroup sync.WaitGroup
 	workerGroup.Add(*workers)
 
-	for i := 0; i < *workers; i++ {
+	for range *workers {
 		go func() {
 			defer workerGroup.Done()
 

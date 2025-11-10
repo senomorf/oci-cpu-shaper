@@ -24,35 +24,45 @@ type Pool struct {
 // DefaultQuantum bounds the busy loop to a responsive interval.
 const DefaultQuantum = time.Millisecond
 
+const (
+	minQuantum = time.Millisecond
+	maxQuantum = 5 * time.Millisecond
+)
+
+var errInvalidWorkerCount = errors.New("shape: worker count must be positive")
+
 // NewPool constructs a worker pool with the provided worker count and quantum duration.
 func NewPool(workers int, quantum time.Duration) (*Pool, error) {
 	if workers <= 0 {
-		return nil, errors.New("worker count must be positive")
+		return nil, errInvalidWorkerCount
 	}
+
 	if quantum <= 0 {
 		quantum = DefaultQuantum
 	}
-	if quantum < time.Millisecond {
-		quantum = time.Millisecond
-	}
-	if quantum > 5*time.Millisecond {
-		quantum = 5 * time.Millisecond
+
+	if quantum < minQuantum {
+		quantum = minQuantum
 	}
 
-	p := &Pool{
-		workers:   workers,
-		quantum:   quantum,
-		busyFunc:  busyWait,
-		sleepFunc: time.Sleep,
-		yieldFunc: runtime.Gosched,
+	if quantum > maxQuantum {
+		quantum = maxQuantum
 	}
-	p.SetTarget(0)
-	return p, nil
+
+	poolInstance := new(Pool)
+	poolInstance.workers = workers
+	poolInstance.quantum = quantum
+	poolInstance.busyFunc = busyWait
+	poolInstance.sleepFunc = time.Sleep
+	poolInstance.yieldFunc = runtime.Gosched
+	poolInstance.SetTarget(0)
+
+	return poolInstance, nil
 }
 
 // Start launches the worker goroutines. The pool terminates when the context is cancelled.
 func (p *Pool) Start(ctx context.Context) {
-	for i := 0; i < p.workers; i++ {
+	for range p.workers {
 		go p.worker(ctx)
 	}
 }
@@ -62,11 +72,13 @@ func (p *Pool) SetTarget(target float64) {
 	if math.IsNaN(target) {
 		target = 0
 	}
+
 	if target < 0 {
 		target = 0
 	} else if target > 1 {
 		target = 1
 	}
+
 	p.targetBits.Store(math.Float64bits(target))
 }
 
@@ -90,10 +102,9 @@ func (p *Pool) worker(ctx context.Context) {
 			return
 		case <-ticker.C:
 			target := p.Target()
-			busyDuration := time.Duration(target * float64(quantum))
-			if busyDuration > quantum {
-				busyDuration = quantum
-			}
+
+			busyDuration := min(time.Duration(target*float64(quantum)), quantum)
+
 			idleDuration := quantum - busyDuration
 
 			if busyDuration > 0 {
@@ -117,6 +128,7 @@ func busyWait(duration time.Duration) {
 	if duration <= 0 {
 		return
 	}
+
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
 		runtime.Gosched()
