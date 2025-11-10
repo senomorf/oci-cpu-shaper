@@ -5,15 +5,33 @@ linters:
     - wsl
   enable:
     - wsl_v5
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+    rules:
+      - path: ^cmd/shaper/.*
+        linters:
+          - depguard
+      - path: ^internal/buildinfo/.*
+        linters:
+          - depguard
+      - path: ^pkg/(adapt|imds)/.*
+        linters:
+          - depguard
   settings:
     wsl_v5:
       allow-first-in-block: true
       allow-whole-block: false
       branch-max-lines: 2
-  exclusions:
-    presets:
-      - comments
-      - common-false-positives
+    depguard:
+      rules:
+        Main:
+          files:
+            - $all
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: use stdlib errors.Join/wrap
 formatters:
   enable:
     - gci
