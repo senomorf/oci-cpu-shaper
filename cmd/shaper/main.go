@@ -23,6 +23,8 @@ const (
 	modeEnforce       = "enforce"
 	modeNoop          = "noop"
 
+	imdsEndpointEnv = "OCI_CPU_SHAPER_IMDS_ENDPOINT"
+
 	exitCodeSuccess      = 0
 	exitCodeRuntimeError = 1
 	exitCodeParseError   = 2
@@ -91,13 +93,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	imdsClient := deps.newIMDS()
 	controller := deps.newController(opts.mode)
 
-	region, _ := imdsClient.Region(ctx)
-	instanceID, _ := imdsClient.InstanceID(ctx)
-	logger.Debug("initialized subsystems",
-		zap.String("dummyRegion", region),
-		zap.String("instanceID", instanceID),
-		zap.String("controllerMode", controller.Mode()),
-	)
+	logIMDSMetadata(ctx, logger, imdsClient, controller)
 
 	runErr := controller.Run(ctx)
 	if runErr != nil {
@@ -212,7 +208,57 @@ func defaultControllerFactory(
 
 //nolint:ireturn // returns interface to support substitutable IMDS clients
 func defaultIMDSFactory() imds.Client {
-	return imds.NewDummyClient()
+	endpoint := strings.TrimSpace(os.Getenv(imdsEndpointEnv))
+
+	var opts []imds.Option
+	if endpoint != "" {
+		opts = append(opts, imds.WithBaseURL(endpoint))
+	}
+
+	return imds.NewClient(nil, opts...)
+}
+
+func logIMDSMetadata(
+	ctx context.Context,
+	logger *zap.Logger,
+	client imds.Client,
+	controller adapt.Controller,
+) {
+	region, regionErr := client.Region(ctx)
+	if regionErr != nil {
+		logger.Warn("failed to query instance region", zap.Error(regionErr))
+	}
+
+	instanceID, instanceErr := client.InstanceID(ctx)
+	if instanceErr != nil {
+		logger.Warn("failed to query instance OCID", zap.Error(instanceErr))
+	}
+
+	shapeCfg, shapeErr := client.ShapeConfig(ctx)
+	if shapeErr != nil {
+		logger.Warn("failed to query instance shape config", zap.Error(shapeErr))
+	}
+
+	fields := []zap.Field{
+		zap.String("controllerMode", controller.Mode()),
+	}
+
+	if regionErr == nil {
+		fields = append(fields, zap.String("region", region))
+	}
+
+	if instanceErr == nil {
+		fields = append(fields, zap.String("instanceID", instanceID))
+	}
+
+	if shapeErr == nil {
+		fields = append(fields,
+			zap.Float64("shapeOCPUs", shapeCfg.OCPUs),
+			zap.Float64("shapeMemoryGB", shapeCfg.MemoryInGBs),
+		)
+	}
+
+	logger.Debug("initialized subsystems", fields...)
 }
 
 func isValidMode(mode string) bool {
