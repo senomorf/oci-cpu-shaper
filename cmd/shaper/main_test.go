@@ -272,22 +272,6 @@ func TestRunHandlesControllerError(t *testing.T) {
 	}
 }
 
-func overrideBuildInfo(t *testing.T, version, commit, date string) {
-	t.Helper()
-
-	originalVersion, originalCommit, originalDate := buildinfo.Version, buildinfo.GitCommit, buildinfo.BuildDate
-
-	buildinfo.Version = version
-	buildinfo.GitCommit = commit
-	buildinfo.BuildDate = date
-
-	t.Cleanup(func() {
-		buildinfo.Version = originalVersion
-		buildinfo.GitCommit = originalCommit
-		buildinfo.BuildDate = originalDate
-	})
-}
-
 func assertInfoLogEntry(
 	t *testing.T,
 	entries []observer.LoggedEntry,
