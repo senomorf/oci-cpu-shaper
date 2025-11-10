@@ -16,7 +16,7 @@ GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents
 
 tools: ensure-golangci-lint ensure-gofumpt
 
@@ -64,7 +64,10 @@ test:
 		$(GO) test -race $(PKGS); \
 	fi
 
-check: lint test
+agents:
+	$(GO) run ./cmd/agentscheck
+
+check: lint test agents
 
 build:
 	$(GO) build ./...
