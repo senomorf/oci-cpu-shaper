@@ -154,6 +154,7 @@ func buildIntegrationImage(t *testing.T, repoRoot string) {
 		"docker", "build",
 		"--target", "rootful",
 		"-t", integrationImageTag,
+		"-f", filepath.Join("deploy", "Dockerfile"),
 		".",
 	)
 	cmd.Dir = repoRoot

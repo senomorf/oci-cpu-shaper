@@ -31,9 +31,11 @@ const (
 func main() {
 	code := run(context.Background(), os.Args[1:], defaultRunDeps(), os.Stderr)
 	if code != 0 {
-		os.Exit(code)
+		exitProcess(code)
 	}
 }
+
+var exitProcess = os.Exit //nolint:gochecknoglobals // replaceable for tests
 
 type runDeps struct {
 	newLogger        func(level string) (*zap.Logger, error)
