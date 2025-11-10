@@ -99,7 +99,9 @@ func newLogger(level string) (*zap.Logger, error) {
 	}
 
 	cfg := zap.NewProductionConfig()
-	if err := cfg.Level.UnmarshalText([]byte(level)); err != nil {
+
+	err := cfg.Level.UnmarshalText([]byte(level))
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidLogLevel, err)
 	}
 
@@ -131,7 +133,8 @@ func parseArgs(args []string) (options, error) {
 	fs.StringVar(&opts.logLevel, "log-level", "info", "Structured log level (debug, info, warn, error)")
 	fs.StringVar(&opts.mode, "mode", "dry-run", "Controller mode to use (dry-run, enforce, noop)")
 
-	if err := fs.Parse(args); err != nil {
+	err := fs.Parse(args)
+	if err != nil {
 		return options{}, fmt.Errorf("parse CLI arguments: %w", err)
 	}
 

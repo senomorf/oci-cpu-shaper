@@ -23,7 +23,8 @@ func TestNoopControllerRunIsNonBlocking(t *testing.T) {
 		t.Fatalf("expected mode to be preserved, got %q", controller.Mode())
 	}
 
-	if err := controller.Run(t.Context()); err != nil {
+	err := controller.Run(t.Context())
+	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 }
