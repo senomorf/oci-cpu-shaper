@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+        "openai.chatgpt",
+        "github.vscode-github-actions",
+        "golang.go"
+    ]
+}
