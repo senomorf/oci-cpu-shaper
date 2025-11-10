@@ -4,7 +4,7 @@ This guide covers the tooling expectations and command shortcuts for contributin
 
 ## Prerequisites
 
-- Go 1.21 or newer (earlier versions are not tested).
+- Go (latest release).
 - `make` for running the provided automation targets.
 - [`golangci-lint`](https://golangci-lint.run/) for linting.
 
