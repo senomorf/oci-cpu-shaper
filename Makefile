@@ -16,7 +16,7 @@ GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage
 
 tools: ensure-golangci-lint ensure-gofumpt
 
@@ -62,6 +62,20 @@ test:
 		echo "No Go packages found; skipping tests."; \
 	else \
 		$(GO) test -race $(PKGS); \
+	fi
+
+coverage:
+	@set -euo pipefail; \
+	if [ -z "$(strip $(PKGS))" ]; then \
+		echo "No Go packages found; skipping coverage."; \
+	else \
+		$(GO) test -race -covermode=atomic -coverprofile=coverage.out $(PKGS); \
+		TOTAL=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$NF}'); \
+		if [ -n "$$TOTAL" ]; then \
+			echo "Total coverage: $$TOTAL"; \
+		else \
+			echo "Coverage summary unavailable"; \
+		fi; \
 	fi
 
 agents:

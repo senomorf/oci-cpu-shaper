@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   pull_request:
 
@@ -44,7 +47,7 @@ jobs:
           args: --timeout=5m
 
   test:
-    name: go test
+    name: go test & coverage
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -58,8 +61,20 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Run tests
-        run: go test ./... -race
+      - name: Run coverage suite
+        run: make coverage
+
+      - name: Enforce coverage threshold
+        env:
+          COVERAGE_THRESHOLD: "30"
+        run: hack/check_coverage.sh "$COVERAGE_THRESHOLD"
+
+      - name: Upload coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-profile
+          path: coverage.out
+          if-no-files-found: error
 
   container-smoke:
     name: container smoke
