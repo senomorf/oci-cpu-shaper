@@ -6,20 +6,31 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
+	"oci-cpu-shaper/pkg/imds"
 )
 
 var (
 	errStubLoggerBoom    = errors.New("logger failure")
 	errStubControllerRun = errors.New("controller run failed")
+	errRegionDown        = errors.New("region down")
+	errInstanceDown      = errors.New("id down")
+	errShapeDown         = errors.New("shape down")
 )
+
+const maxUint32 = ^uint32(0)
 
 func TestParseArgsDefaults(t *testing.T) {
 	t.Parallel()
@@ -352,6 +363,189 @@ func TestMainPropagatesNonZeroExitCode(t *testing.T) { //nolint:paralleltest // 
 	}
 }
 
+func TestDefaultIMDSFactoryUsesEnvironmentEndpoint(t *testing.T) {
+	responses := map[string]string{
+		"/opc/v2/instance/region":       "us-chicago-1",
+		"/opc/v2/instance/id":           "ocid1.instance.oc1..exampleuniqueID",
+		"/opc/v2/instance/shape-config": `{"ocpus":2,"memoryInGBs":32}`,
+	}
+
+	server := httptest.NewServer(
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			body, ok := responses[req.URL.Path]
+			if !ok {
+				t.Fatalf("unexpected path: %s", req.URL.Path)
+			}
+
+			_, _ = writer.Write([]byte(body))
+		}),
+	)
+	t.Cleanup(server.Close)
+
+	t.Setenv(imdsEndpointEnv, " "+server.URL+"/opc/v2 ")
+
+	client := defaultIMDSFactory()
+
+	ctx := context.Background()
+
+	region, err := client.Region(ctx)
+	if err != nil {
+		t.Fatalf("Region() returned error: %v", err)
+	}
+
+	if region != "us-chicago-1" {
+		t.Fatalf("unexpected region %q", region)
+	}
+
+	instanceID, err := client.InstanceID(ctx)
+	if err != nil {
+		t.Fatalf("InstanceID() returned error: %v", err)
+	}
+
+	if instanceID != "ocid1.instance.oc1..exampleuniqueID" {
+		t.Fatalf("unexpected instance ID %q", instanceID)
+	}
+
+	shape, err := client.ShapeConfig(ctx)
+	if err != nil {
+		t.Fatalf("ShapeConfig() returned error: %v", err)
+	}
+
+	if shape.OCPUs != 2 || shape.MemoryInGBs != 32 {
+		t.Fatalf("unexpected shape config: %+v", shape)
+	}
+}
+
+func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	client := &stubIMDSClient{
+		region:      "us-ashburn-1",
+		regionErr:   nil,
+		instanceID:  "ocid1.instance.oc1..exampleuniqueID",
+		instanceErr: nil,
+		shape: imds.ShapeConfig{
+			OCPUs:                     4,
+			MemoryInGBs:               64,
+			BaselineOcpuUtilization:   "",
+			BaselineOCPUs:             0,
+			ThreadsPerCore:            0,
+			NetworkingBandwidthInGbps: 0,
+			MaxVnicAttachments:        0,
+		},
+		shapeErr: nil,
+	}
+
+	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
+
+	logIMDSMetadata(context.Background(), logger, client, ctrl)
+
+	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
+	if len(entries) == 0 {
+		t.Fatalf("expected debug log entry, got %+v", observed.All())
+	}
+
+	entry := entries[0]
+	if fieldString(entry.Context, "region") != "us-ashburn-1" {
+		t.Fatalf("expected region field, got %+v", entry.Context)
+	}
+
+	if fieldString(entry.Context, "instanceID") != "ocid1.instance.oc1..exampleuniqueID" {
+		t.Fatalf("expected instanceID field, got %+v", entry.Context)
+	}
+
+	if fieldFloat(entry.Context, "shapeOCPUs") != 4 {
+		t.Fatalf("expected shapeOCPUs field, got %+v", entry.Context)
+	}
+
+	if fieldFloat(entry.Context, "shapeMemoryGB") != 64 {
+		t.Fatalf("expected shapeMemoryGB field, got %+v", entry.Context)
+	}
+}
+
+func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	client := &stubIMDSClient{
+		region:      "",
+		regionErr:   errRegionDown,
+		instanceID:  "",
+		instanceErr: errInstanceDown,
+		shape: imds.ShapeConfig{
+			OCPUs:                     0,
+			MemoryInGBs:               0,
+			BaselineOcpuUtilization:   "",
+			BaselineOCPUs:             0,
+			ThreadsPerCore:            0,
+			NetworkingBandwidthInGbps: 0,
+			MaxVnicAttachments:        0,
+		},
+		shapeErr: errShapeDown,
+	}
+
+	ctrl := &stubController{mode: modeNoop, runErr: nil, runCalled: false}
+
+	logIMDSMetadata(context.Background(), logger, client, ctrl)
+
+	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
+	if len(warns) != 3 {
+		t.Fatalf("expected three warnings, got %d", len(warns))
+	}
+}
+
+func TestMainIntegratesDefaultDependencies(t *testing.T) {
+	server := httptest.NewServer(
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			switch req.URL.Path {
+			case "/opc/v2/instance/region":
+				_, _ = writer.Write([]byte("us-denver-1"))
+			case "/opc/v2/instance/id":
+				_, _ = writer.Write([]byte("ocid1.instance.oc1..main"))
+			case "/opc/v2/instance/shape-config":
+				_, _ = writer.Write([]byte(`{"ocpus":1,"memoryInGBs":1}`))
+			default:
+				t.Fatalf("unexpected path: %s", req.URL.Path)
+			}
+		}),
+	)
+	t.Cleanup(server.Close)
+
+	t.Setenv(imdsEndpointEnv, server.URL+"/opc/v2")
+
+	originalArgs := os.Args
+	os.Args = []string{
+		"shaper",
+		"--mode",
+		"noop",
+		"--log-level",
+		"error",
+		"--config",
+		"./testdata/config.yaml",
+	}
+
+	defer func() { os.Args = originalArgs }()
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		main()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("main did not return in time")
+	}
+}
+
 func assertInfoLogEntry(
 	t *testing.T,
 	entries []observer.LoggedEntry,
@@ -404,13 +598,41 @@ func (c *stubController) Mode() string {
 }
 
 func fieldString(fields []zap.Field, key string) string {
-	for _, f := range fields {
-		if f.Key == key {
-			return f.String
+	for _, field := range fields {
+		if field.Key == key {
+			return field.String
 		}
 	}
 
 	return ""
+}
+
+func fieldFloat(fields []zap.Field, key string) float64 {
+	for _, field := range fields {
+		if field.Key != key {
+			continue
+		}
+
+		if field.Type == zapcore.Float64Type {
+			if field.Integer < 0 {
+				return 0
+			}
+
+			return math.Float64frombits(uint64(field.Integer))
+		}
+
+		if field.Type == zapcore.Float32Type {
+			if field.Integer < 0 || field.Integer > int64(maxUint32) {
+				return 0
+			}
+
+			return float64(math.Float32frombits(uint32(field.Integer)))
+		}
+
+		return 0
+	}
+
+	return 0
 }
 
 func stubBuildInfo(version, commit, date string) buildinfo.Info {
@@ -419,4 +641,25 @@ func stubBuildInfo(version, commit, date string) buildinfo.Info {
 		GitCommit: commit,
 		BuildDate: date,
 	}
+}
+
+type stubIMDSClient struct {
+	region      string
+	regionErr   error
+	instanceID  string
+	instanceErr error
+	shape       imds.ShapeConfig
+	shapeErr    error
+}
+
+func (s *stubIMDSClient) Region(context.Context) (string, error) {
+	return s.region, s.regionErr
+}
+
+func (s *stubIMDSClient) InstanceID(context.Context) (string, error) {
+	return s.instanceID, s.instanceErr
+}
+
+func (s *stubIMDSClient) ShapeConfig(context.Context) (imds.ShapeConfig, error) {
+	return s.shape, s.shapeErr
 }

@@ -3,32 +3,26 @@ package imds
 
 import "context"
 
+// DefaultEndpoint is the canonical IMDSv2 endpoint for OCI instances.
+const DefaultEndpoint = "http://169.254.169.254/opc/v2"
+
 // Client describes the metadata operations needed by the CPU shaper.
 type Client interface {
 	// Region returns the canonical region for the running instance.
 	Region(ctx context.Context) (string, error)
 	// InstanceID returns the OCID of the running instance.
 	InstanceID(ctx context.Context) (string, error)
+	// ShapeConfig returns the compute shape attributes for the instance.
+	ShapeConfig(ctx context.Context) (ShapeConfig, error)
 }
 
-// DummyClient is a placeholder IMDS implementation used during bootstrap.
-type DummyClient struct{}
-
-// NewDummyClient returns a Client that supplies deterministic dummy values.
-func NewDummyClient() *DummyClient {
-	return &DummyClient{}
-}
-
-// Region returns a synthetic region identifier for development use.
-func (DummyClient) Region(ctx context.Context) (string, error) {
-	_ = ctx
-
-	return "dummy-region-1", nil
-}
-
-// InstanceID returns a placeholder instance OCID.
-func (DummyClient) InstanceID(ctx context.Context) (string, error) {
-	_ = ctx
-
-	return "ocid1.instance.oc1..dummy", nil
+// ShapeConfig contains the compute shape metadata exported by IMDSv2.
+type ShapeConfig struct {
+	OCPUs                     float64 `json:"ocpus"`
+	MemoryInGBs               float64 `json:"memoryInGBs"`
+	BaselineOcpuUtilization   string  `json:"baselineOcpuUtilization"`
+	BaselineOCPUs             float64 `json:"baselineOcpus"`
+	ThreadsPerCore            int     `json:"threadsPerCore"`
+	NetworkingBandwidthInGbps float64 `json:"networkingBandwidthInGbps"`
+	MaxVnicAttachments        int     `json:"maxVnicAttachments"`
 }
