@@ -284,13 +284,82 @@ func TestRunHandlesControllerError(t *testing.T) {
 	}
 }
 
-func TestDefaultControllerFactory(t *testing.T) {
+func TestDefaultControllerFactoryHonorsMode(t *testing.T) {
 	t.Parallel()
 
-	controller := defaultControllerFactory(modeEnforce)
+	controller := defaultControllerFactory("enforce")
 
-	if controller.Mode() != modeEnforce {
-		t.Fatalf("expected controller mode %q, got %q", modeEnforce, controller.Mode())
+	if got := controller.Mode(); got != modeEnforce {
+		t.Fatalf("expected controller mode %q, got %q", modeEnforce, got)
+	}
+
+	if _, ok := controller.(*adapt.NoopController); !ok {
+		t.Fatalf("expected default controller to be noop implementation, got %T", controller)
+	}
+}
+
+func TestDefaultControllerFactoryFallsBackToNoop(t *testing.T) {
+	t.Parallel()
+
+	controller := defaultControllerFactory("")
+
+	if got := controller.Mode(); got != modeNoop {
+		t.Fatalf("expected default controller mode %q, got %q", modeNoop, got)
+	}
+}
+
+func TestMainSuccessDoesNotExit(t *testing.T) { //nolint:paralleltest // mutates process-wide state
+	originalExit := exitProcess
+
+	defer func() { exitProcess = originalExit }()
+
+	exitCalled := false
+	exitProcess = func(code int) {
+		exitCalled = true
+
+		if code != exitCodeSuccess {
+			t.Fatalf("unexpected exit code: %d", code)
+		}
+	}
+
+	originalArgs := os.Args
+
+	defer func() { os.Args = originalArgs }()
+
+	os.Args = []string{"oci-cpu-shaper"}
+
+	main()
+
+	if exitCalled {
+		t.Fatal("expected main to complete without invoking exit")
+	}
+}
+
+func TestMainPropagatesNonZeroExitCode(t *testing.T) { //nolint:paralleltest // mutates global state
+	originalExit := exitProcess
+
+	defer func() { exitProcess = originalExit }()
+
+	exitCodes := make(chan int, 1)
+	exitProcess = func(code int) {
+		exitCodes <- code
+	}
+
+	originalArgs := os.Args
+
+	defer func() { os.Args = originalArgs }()
+
+	os.Args = []string{"oci-cpu-shaper", "--mode", "invalid"}
+
+	main()
+
+	select {
+	case code := <-exitCodes:
+		if code != exitCodeParseError {
+			t.Fatalf("expected exit code %d, got %d", exitCodeParseError, code)
+		}
+	default:
+		t.Fatal("expected main to invoke exit with parse error code")
 	}
 }
 
