@@ -17,7 +17,14 @@ Contributions are welcome! Please:
 
 1. Open an issue to discuss significant features or changes.
 2. Follow Go best practices and the formatting rules defined in `.editorconfig`.
-3. Include tests and documentation updates when adding new functionality.
-4. Use conventional commit messages where possible to ease changelog generation.
+3. Use the provided tooling shortcuts before submitting changes:
+   - `make fmt` to format code with `go fmt`.
+   - `make lint` to run `golangci-lint`.
+   - `make test` to execute the suite with the Go race detector enabled.
+   - `make build` to ensure binaries compile successfully.
+4. Include tests and documentation updates when adding new functionality.
+5. Use conventional commit messages where possible to ease changelog generation.
+
+See [`docs/08-development.md`](docs/08-development.md) for detailed local development setup guidance.
 
 Refer to the documentation in the `docs/` directory for deeper architectural and operational context as it becomes available.

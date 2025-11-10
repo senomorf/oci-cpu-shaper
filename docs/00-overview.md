@@ -8,4 +8,4 @@ This overview summarizes the high-level vision and pointers to additional docume
 - **Operational Guidance** – Covers build metadata, configuration options, and integration points with OCI metadata services.
 - **Contributor Reference** – Explains conventions for extending components in `cmd/`, `pkg/`, and `internal/`.
 
-Additional documents will be added to detail interfaces, deployment flows, and best practices as the project evolves.
+Additional documents will be added to detail interfaces, deployment flows, and best practices as the project evolves. For local development environment setup and contributor tooling expectations, see [`08-development.md`](./08-development.md).
