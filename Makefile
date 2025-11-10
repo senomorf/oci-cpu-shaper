@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 GO ?= go
+MIN_COVERAGE ?= 85.0
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOFUMPT_VERSION ?= 0.9.2
@@ -73,6 +74,11 @@ coverage:
 		TOTAL=$$($(GO) tool cover -func=coverage.out | awk '/^total:/ {print $$NF}'); \
 		if [ -n "$$TOTAL" ]; then \
 			echo "Total coverage: $$TOTAL"; \
+			COVERAGE_VALUE=$$(printf '%s' "$$TOTAL" | tr -d '%'); \
+			if ! awk -v cov="$$COVERAGE_VALUE" -v min="$(MIN_COVERAGE)" 'BEGIN {if (cov+0 >= min+0) exit 0; exit 1}'; then \
+				echo "Coverage $${COVERAGE_VALUE}% is below required $(MIN_COVERAGE)%"; \
+				exit 1; \
+			fi; \
 		else \
 			echo "Coverage summary unavailable"; \
 		fi; \
