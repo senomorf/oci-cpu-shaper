@@ -1,12 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"io"
 	"strings"
 	"testing"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+
+	"oci-cpu-shaper/internal/buildinfo"
+	"oci-cpu-shaper/pkg/adapt"
+	"oci-cpu-shaper/pkg/imds"
 )
 
 func TestParseArgsDefaults(t *testing.T) {
@@ -109,4 +117,151 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 		// Accept either standard flag error or ErrHelp depending on flag parsing behavior.
 		t.Fatalf("unexpected error type: %v", err)
 	}
+}
+
+func TestRunSuccessfulPath(t *testing.T) {
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	originalVersion, originalCommit, originalDate := buildinfo.Version, buildinfo.GitCommit, buildinfo.BuildDate
+	buildinfo.Version = "test-version"
+	buildinfo.GitCommit = "test-commit"
+	buildinfo.BuildDate = "2024-05-01"
+	t.Cleanup(func() {
+		buildinfo.Version = originalVersion
+		buildinfo.GitCommit = originalCommit
+		buildinfo.BuildDate = originalDate
+	})
+
+	ctrl := &stubController{}
+	deps := runDeps{
+		newLogger: func(level string) (*zap.Logger, error) {
+			if level != "debug" {
+				t.Fatalf("expected log level \"debug\", got %q", level)
+			}
+			return logger, nil
+		},
+		newIMDS: imds.NewDummyClient,
+		newController: func(mode string) adapt.Controller {
+			ctrl.mode = mode
+			return ctrl
+		},
+	}
+
+	exitCode := run(context.Background(), []string{"--mode", "enforce", "--log-level", "debug"}, deps, io.Discard)
+	if exitCode != 0 {
+		t.Fatalf("expected zero exit code, got %d", exitCode)
+	}
+	if !ctrl.runCalled {
+		t.Fatal("expected controller Run to be called")
+	}
+	if ctrl.mode != "enforce" {
+		t.Fatalf("expected controller mode \"enforce\", got %q", ctrl.mode)
+	}
+
+	entries := observed.All()
+	var infoEntry *observer.LoggedEntry
+	for i := range entries {
+		if entries[i].Message == "starting oci-cpu-shaper" {
+			infoEntry = &entries[i]
+			break
+		}
+	}
+	if infoEntry == nil {
+		t.Fatalf("expected info log entry, got %+v", entries)
+	}
+	if got := fieldString(infoEntry.Context, "version"); got != "test-version" {
+		t.Fatalf("expected version field to be set, got %q", got)
+	}
+	if got := fieldString(infoEntry.Context, "commit"); got != "test-commit" {
+		t.Fatalf("expected commit field to be set, got %q", got)
+	}
+	if got := fieldString(infoEntry.Context, "buildDate"); got != "2024-05-01" {
+		t.Fatalf("expected buildDate field to be set, got %q", got)
+	}
+}
+
+func TestRunReturnsParseErrorExitCode(t *testing.T) {
+	var stderr bytes.Buffer
+
+	exitCode := run(context.Background(), []string{"--mode", "invalid"}, runDeps{}, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("expected exit code 2 for parse errors, got %d", exitCode)
+	}
+	if got := stderr.String(); !strings.Contains(got, "unsupported mode") {
+		t.Fatalf("expected error message about unsupported mode, got %q", got)
+	}
+}
+
+func TestRunReturnsLoggerConfigurationError(t *testing.T) {
+	var stderr bytes.Buffer
+
+	deps := runDeps{
+		newLogger: func(string) (*zap.Logger, error) {
+			return nil, errors.New("boom")
+		},
+	}
+
+	exitCode := run(context.Background(), nil, deps, &stderr)
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1 when logger configuration fails, got %d", exitCode)
+	}
+	if got := stderr.String(); !strings.Contains(got, "failed to configure logger") {
+		t.Fatalf("expected logger configuration failure message, got %q", got)
+	}
+}
+
+func TestRunHandlesControllerError(t *testing.T) {
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	ctrl := &stubController{runErr: errors.New("controller failed")}
+	deps := runDeps{
+		newLogger: func(string) (*zap.Logger, error) {
+			return logger, nil
+		},
+		newIMDS: imds.NewDummyClient,
+		newController: func(mode string) adapt.Controller {
+			ctrl.mode = mode
+			return ctrl
+		},
+	}
+
+	exitCode := run(context.Background(), []string{"--mode", "noop", "--log-level", "debug"}, deps, io.Discard)
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1 when controller.Run returns an error, got %d", exitCode)
+	}
+	if !ctrl.runCalled {
+		t.Fatal("expected controller Run to be invoked")
+	}
+
+	failureEntries := observed.FilterMessage("controller execution failed").All()
+	if len(failureEntries) == 0 {
+		t.Fatalf("expected controller failure log, got %+v", observed.All())
+	}
+}
+
+type stubController struct {
+	mode      string
+	runErr    error
+	runCalled bool
+}
+
+func (c *stubController) Run(ctx context.Context) error {
+	c.runCalled = true
+	_ = ctx
+	return c.runErr
+}
+
+func (c *stubController) Mode() string {
+	return c.mode
+}
+
+func fieldString(fields []zap.Field, key string) string {
+	for _, f := range fields {
+		if f.Key == key {
+			return f.String
+		}
+	}
+	return ""
 }

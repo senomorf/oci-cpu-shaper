@@ -18,16 +18,43 @@ import (
 )
 
 func main() {
-	opts, err := parseArgs(os.Args[1:])
+	code := run(context.Background(), os.Args[1:], defaultRunDeps(), os.Stderr)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+type runDeps struct {
+	newLogger     func(level string) (*zap.Logger, error)
+	newIMDS       func() imds.Client
+	newController func(mode string) adapt.Controller
+}
+
+func defaultRunDeps() runDeps {
+	return runDeps{
+		newLogger: newLogger,
+		newIMDS:   imds.NewDummyClient,
+		newController: func(mode string) adapt.Controller {
+			return adapt.NewNoopController(mode)
+		},
+	}
+}
+
+func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
+	opts, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(2)
+		if _, ferr := fmt.Fprintf(stderr, "%v\n", err); ferr != nil {
+			return 2
+		}
+		return 2
 	}
 
-	logger, err := newLogger(opts.logLevel)
+	logger, err := deps.newLogger(opts.logLevel)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to configure logger: %v\n", err)
-		os.Exit(1)
+		if _, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err); ferr != nil {
+			return 1
+		}
+		return 1
 	}
 	defer func() {
 		_ = logger.Sync()
@@ -43,10 +70,8 @@ func main() {
 		zap.String("mode", opts.mode),
 	)
 
-	ctx := context.Background()
-
-	imdsClient := imds.NewDummyClient()
-	controller := adapt.NewNoopController(opts.mode)
+	imdsClient := deps.newIMDS()
+	controller := deps.newController(opts.mode)
 
 	region, _ := imdsClient.Region(ctx)
 	instanceID, _ := imdsClient.InstanceID(ctx)
@@ -57,8 +82,11 @@ func main() {
 	)
 
 	if err := controller.Run(ctx); err != nil {
-		logger.Fatal("controller execution failed", zap.Error(err))
+		logger.Error("controller execution failed", zap.Error(err))
+		return 1
 	}
+
+	return 0
 }
 
 func newLogger(level string) (*zap.Logger, error) {
