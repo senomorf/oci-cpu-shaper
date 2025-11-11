@@ -23,7 +23,7 @@ The Go SDK automatically exchanges the instance principal token set for a tempor
 CpuUtilization[1m]{resourceId = "<instance_ocid>"}.percentile(0.95)
 ```
 
-The method wraps the OCI Go SDK client, paginates over `opc-next-page` tokens, and selects the most recent aggregated datapoint. When the caller requests a seven-day lookback the query automatically truncates the interval to the Monitoring service’s one-minute resolution ceiling so the API never rejects the call.[^oci-monitoring-mql] The helper returns `ErrNoMetricsData` when no datapoints are available, allowing the controller to fall back to on-host estimators. Unit tests exercise pagination, empty result handling, and the exact query string via an HTTP-backed mock to preserve the ≥85% coverage floor mandated in §11.
+The method wraps the OCI Go SDK client, paginates over `opc-next-page` tokens, and selects the most recent aggregated datapoint. The third argument, `last7d`, toggles the trailing window: set it to `true` for a seven-day lookback or leave it `false` for the 24-hour default. The helper automatically truncates the interval to the Monitoring service’s one-minute resolution ceiling so the API never rejects the call.[^oci-monitoring-mql] It returns `ErrNoMetricsData` when no datapoints are available, allowing the controller to fall back to on-host estimators. Unit tests exercise pagination, empty result handling, and the exact query string via an HTTP-backed mock to preserve the ≥85% coverage floor mandated in §11.
 
 ## 5.3 Troubleshooting
 

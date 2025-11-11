@@ -18,7 +18,7 @@ The reclaim detector requires **all** three signals to stay below 20% for the en
 
 1. Confirm the Compute Agent plugin is enabled and publishing metrics.
 2. Use the Monitoring console or OCI CLI to run the seven-day P95 query.
-3. Cross-check values against the shaper’s `/metrics` endpoint to ensure internal telemetry matches Oracle’s readings.
+3. Cross-check values against the shaper’s runtime telemetry once the planned `/metrics` endpoint lands (tracked in `docs/ROADMAP.md` §3.1). Until then, rely on controller logs and the CLI’s reported mode to confirm background activity.
 
 ## 3.3 Responding to reclaim notifications
 

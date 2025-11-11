@@ -20,11 +20,11 @@ The alarm should target the exact instance OCID retrieved from IMDSv2 so notific
 
 1. Confirm the notification topic is subscribed before enabling the alarm.
 2. Use the **Test Alarm** feature to emit a sample payload and verify downstream automation.
-3. After deployment, compare alarm history with the shaper’s `/metrics` and the `QueryP95CPU` output described in `docs/05-monitoring-mql.md` to ensure data parity.
+3. After deployment, compare alarm history with the `QueryP95CPU` output described in `docs/05-monitoring-mql.md`. Once the `/metrics` endpoint ships (tracked in `docs/ROADMAP.md` §3.1), fold that telemetry into the review to confirm parity between local and tenancy signals.
 
 ## 7.3 Operational playbook
 
-- **Sustained alerts:** Increase the controller’s duty-cycle target (see `docs/04-cgroups-v2.md`) or investigate workload regressions that keep CPU idle.
+- **Sustained alerts:** Increase the controller’s duty-cycle target (see `docs/04-cgroups-v2.md`) or investigate workload regressions that keep CPU idle. The CLI currently wires the placeholder controller returned by `adapt.NewNoopController`, so use duty-cycle adjustments only after integrating the adaptive loop tracked on the roadmap.
 - **Missing data incidents:** OCI Alarms treat absent metrics as breaching the condition. Validate Compute Agent health and network reachability, then consult §5.3 of `docs/05-monitoring-mql.md` for troubleshooting steps.
 - **Noisy alerts:** Adjust the pending duration or add a secondary alarm tracking network utilisation when reclaim warnings cite multiple signals.
 
