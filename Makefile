@@ -29,7 +29,7 @@ GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck integration
 
 tools: ensure-golangci-lint ensure-gofumpt
 
@@ -118,3 +118,36 @@ check: lint test agents
 
 build:
 	$(GO) build ./...
+
+integration:
+	@set -euo pipefail; \
+	if ! command -v docker >/dev/null 2>&1; then \
+		echo "integration suite requires the docker CLI"; \
+		exit 1; \
+	fi; \
+	if ! docker info >/dev/null 2>&1; then \
+		echo "failed to communicate with the Docker daemon"; \
+		exit 1; \
+	fi; \
+	cgroup_version="$$(docker info --format '{{.CgroupVersion}}' 2>/dev/null || true)"; \
+	if [ "$$cgroup_version" != "2" ]; then \
+		echo "integration suite requires cgroup v2 (detected $${cgroup_version:-unknown})"; \
+		exit 1; \
+	fi; \
+	echo "Docker cgroup version: $$cgroup_version"; \
+	artifacts_dir="$(ROOT_DIR)/artifacts"; \
+	log_file="$$artifacts_dir/integration.log"; \
+	mkdir -p "$$artifacts_dir"; \
+	cleanup() { \
+		status="$$?"; \
+		if [ "$$status" -eq 0 ]; then \
+			rm -f "$$log_file"; \
+			rmdir "$$artifacts_dir" 2>/dev/null || true; \
+		else \
+			echo "Integration logs captured at $$log_file"; \
+		fi; \
+		exit "$$status"; \
+	}; \
+	trap 'cleanup' EXIT; \
+	touch "$$log_file"; \
+	$(GO) test -tags=integration -v ./tests/integration/... | tee "$$log_file"
