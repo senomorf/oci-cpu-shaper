@@ -140,7 +140,7 @@ jobs:
           docker run --rm oci-cpu-shaper:test \
             --mode dry-run \
             --log-level debug \
-            --shutdown-after=4s | tee smoke.log
+            --shutdown-after=4s 2>&1 | tee smoke.log
 
           grep -F '"controllerMode":"dry-run"' smoke.log
           grep -F '"offline":true' smoke.log
