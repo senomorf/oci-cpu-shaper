@@ -19,7 +19,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Documentation refresh covering OCI IAM policy setup (§1), Always Free reclaim guardrails (§3), cgroup v2 tuning guidance (§4), and alarm workflows (§7), aligning `docs/` with the implementation plan’s required artifacts (§12).
 
 ### Changed
-_Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 
+_Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._
 - CLI `--mode` handling now starts the adaptive controller in `dry-run`/`enforce`, keeps `noop` as a diagnostics bypass, and logs configuration failures surfaced by the new YAML/environment loader. Updated docs in §§5 and 9 describe the operating modes and tunable configuration.
 - Raised the CI statement coverage floor to 85% and filtered `make coverage` to exclude developer tooling packages (for example, `cmd/agentscheck`), bringing the latest production-only run to 86.6% while keeping the threshold focused on shipped code paths (§11).
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.

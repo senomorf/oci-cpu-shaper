@@ -24,6 +24,8 @@ Allow dynamic-group <group_name> to read metrics in compartment <compartment_nam
 
 Scope the policy to the target compartment when possible; use `in tenancy` only when the shaper tracks instances across multiple compartments. `read metrics` maps to the `METRIC_READ` verb needed for the `SummarizeMetricsData` API consumed by `pkg/oci.Client`.[^oci-policies] Update this document and `docs/CHANGELOG.md` whenever new API calls or resource types expand the required permissions.
 
+`pkg/oci.NewInstancePrincipalClient` validates the compartment OCID before constructing the SDK-backed client, so deployments must supply a non-empty compartment identifier at bootstrap time. The returned client shares the policy scope configured here; widening permissions later requires refreshing the binary or configuration to pick up the new compartment target.
+
 ## 1.3 Verifying principal access
 
 After applying the policy, confirm that instance principals can authenticate before wiring the controller:

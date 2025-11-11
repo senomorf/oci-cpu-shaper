@@ -47,3 +47,4 @@
 2. Confirm the Release workflow pushes both versioned and `latest` images to GHCR.
 3. Verify the generated SBOM artifact and attach it to any manual release notes.
 4. Announce availability and update downstream deployment references if necessary.
+5. Audit `docs/` (including `docs/CHANGELOG.md`) for drift introduced since the previous release and capture any required updates in the release notes.
