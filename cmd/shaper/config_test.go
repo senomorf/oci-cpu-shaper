@@ -122,6 +122,10 @@ func TestLoadConfigAppliesOfflineFileOverride(t *testing.T) {
 	if cfg.OCI.InstanceID != expectedInstance {
 		t.Fatalf("unexpected instance id override: %q", cfg.OCI.InstanceID)
 	}
+
+	if cfg.OCI.InstanceID != "ocid1.instance.oc1..override" {
+		t.Fatalf("expected env override for instance ID, got %q", cfg.OCI.InstanceID)
+	}
 }
 
 func TestLoadConfigReturnsDecodeError(t *testing.T) {
