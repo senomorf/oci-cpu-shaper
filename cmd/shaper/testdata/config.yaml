@@ -1,0 +1,19 @@
+controller:
+  targetStart: 0.26
+  targetMin: 0.22
+  targetMax: 0.38
+  stepUp: 0.03
+  stepDown: 0.02
+  fallbackTarget: 0.24
+  interval: 30m
+  relaxedInterval: 4h
+  relaxedThreshold: 0.27
+estimator:
+  interval: 2s
+pool:
+  workers: 2
+  quantum: 2ms
+http:
+  bind: ":9200"
+oci:
+  compartmentId: "ocid1.compartment.oc1..exampleuniqueID"

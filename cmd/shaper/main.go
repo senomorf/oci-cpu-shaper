@@ -13,7 +13,10 @@ import (
 	"go.uber.org/zap"
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
+	"oci-cpu-shaper/pkg/est"
 	"oci-cpu-shaper/pkg/imds"
+	"oci-cpu-shaper/pkg/oci"
+	"oci-cpu-shaper/pkg/shape"
 )
 
 const (
@@ -40,11 +43,33 @@ func main() {
 var exitProcess = os.Exit //nolint:gochecknoglobals // replaceable for tests
 
 type runDeps struct {
-	newLogger        func(level string) (*zap.Logger, error)
-	newIMDS          func() imds.Client
-	newController    func(mode string) adapt.Controller
+	newLogger     func(level string) (*zap.Logger, error)
+	newIMDS       func() imds.Client
+	newController func(
+		ctx context.Context,
+		mode string,
+		cfg runtimeConfig,
+		imdsClient imds.Client,
+	) (adapt.Controller, poolStarter, error)
 	currentBuildInfo func() buildinfo.Info
+	loadConfig       func(path string) (runtimeConfig, error)
 }
+
+type poolStarter interface {
+	Start(ctx context.Context)
+}
+
+type metricsClientFactory func(compartmentID string) (oci.MetricsClient, error)
+
+var newMetricsClient metricsClientFactory = buildInstancePrincipalMetricsClient //nolint:gochecknoglobals // test shim
+
+var (
+	errControllerIMDSRequired        = errors.New("controller factory: imds client is required")
+	errControllerCompartmentRequired = errors.New(
+		"controller factory: OCI compartment ID is required",
+	)
+	errMetricsDelegateNil = errors.New("metrics client: nil delegate")
+)
 
 func defaultRunDeps() runDeps {
 	return runDeps{
@@ -52,28 +77,32 @@ func defaultRunDeps() runDeps {
 		newIMDS:          defaultIMDSFactory,
 		newController:    defaultControllerFactory,
 		currentBuildInfo: buildinfo.Current,
+		loadConfig:       loadConfig,
 	}
 }
 
 func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
 	opts, err := parseArgs(args)
 	if err != nil {
-		_, ferr := fmt.Fprintf(stderr, "%v\n", err)
-		if ferr != nil {
-			return exitCodeParseError
-		}
+		return writeError(stderr, err, exitCodeParseError)
+	}
 
-		return exitCodeParseError
+	cfg, err := deps.loadConfig(opts.configPath)
+	if err != nil {
+		return writeError(
+			stderr,
+			fmt.Errorf("failed to load configuration: %w", err),
+			exitCodeRuntimeError,
+		)
 	}
 
 	logger, err := deps.newLogger(opts.logLevel)
 	if err != nil {
-		_, ferr := fmt.Fprintf(stderr, "failed to configure logger: %v\n", err)
-		if ferr != nil {
-			return exitCodeRuntimeError
-		}
-
-		return exitCodeRuntimeError
+		return writeError(
+			stderr,
+			fmt.Errorf("failed to configure logger: %w", err),
+			exitCodeRuntimeError,
+		)
 	}
 
 	defer func() {
@@ -91,7 +120,17 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	)
 
 	imdsClient := deps.newIMDS()
-	controller := deps.newController(opts.mode)
+
+	controller, pool, buildErr := deps.newController(ctx, opts.mode, cfg, imdsClient)
+	if buildErr != nil {
+		logger.Error("failed to build controller", zap.Error(buildErr))
+
+		return exitCodeRuntimeError
+	}
+
+	if pool != nil {
+		pool.Start(ctx)
+	}
 
 	logIMDSMetadata(ctx, logger, imdsClient, controller)
 
@@ -103,6 +142,19 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	}
 
 	return exitCodeSuccess
+}
+
+func writeError(dst io.Writer, err error, code int) int {
+	if err == nil {
+		return code
+	}
+
+	_, ferr := fmt.Fprintf(dst, "%v\n", err)
+	if ferr != nil {
+		return code
+	}
+
+	return code
 }
 
 func newLogger(level string) (*zap.Logger, error) {
@@ -201,9 +253,108 @@ var (
 
 //nolint:ireturn // factory intentionally hides controller implementation
 func defaultControllerFactory(
+	ctx context.Context,
 	mode string,
-) adapt.Controller {
-	return adapt.NewNoopController(mode)
+	cfg runtimeConfig,
+	imdsClient imds.Client,
+) (adapt.Controller, poolStarter, error) {
+	trimmed := strings.TrimSpace(mode)
+	if trimmed == "" {
+		trimmed = modeDryRun
+	}
+
+	if trimmed == modeNoop {
+		return adapt.NewNoopController(trimmed), nil, nil
+	}
+
+	if imdsClient == nil {
+		return nil, nil, errControllerIMDSRequired
+	}
+
+	return buildAdaptiveController(ctx, trimmed, cfg, imdsClient)
+}
+
+//nolint:ireturn // helper returns controller interface for wiring
+func buildAdaptiveController(
+	ctx context.Context,
+	mode string,
+	cfg runtimeConfig,
+	imdsClient imds.Client,
+) (adapt.Controller, poolStarter, error) {
+	instanceID, err := imdsClient.InstanceID(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lookup instance ocid: %w", err)
+	}
+
+	compartmentID := strings.TrimSpace(cfg.OCI.CompartmentID)
+	if compartmentID == "" {
+		return nil, nil, errControllerCompartmentRequired
+	}
+
+	metricsClient, err := newMetricsClient(compartmentID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build monitoring client: %w", err)
+	}
+
+	pool, err := shape.NewPool(cfg.Pool.Workers, cfg.Pool.Quantum)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build worker pool: %w", err)
+	}
+
+	sampler := est.NewSampler(nil, cfg.Estimator.Interval)
+
+	controllerCfg := adapt.Config{
+		ResourceID:       instanceID,
+		Mode:             mode,
+		TargetStart:      cfg.Controller.TargetStart,
+		TargetMin:        cfg.Controller.TargetMin,
+		TargetMax:        cfg.Controller.TargetMax,
+		StepUp:           cfg.Controller.StepUp,
+		StepDown:         cfg.Controller.StepDown,
+		FallbackTarget:   cfg.Controller.FallbackTarget,
+		GoalLow:          cfg.Controller.GoalLow,
+		GoalHigh:         cfg.Controller.GoalHigh,
+		Interval:         cfg.Controller.Interval,
+		RelaxedInterval:  cfg.Controller.RelaxedInterval,
+		RelaxedThreshold: cfg.Controller.RelaxedThreshold,
+	}
+
+	controller, err := adapt.NewAdaptiveController(controllerCfg, metricsClient, sampler, pool)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build adaptive controller: %w", err)
+	}
+
+	return controller, pool, nil
+}
+
+//nolint:ireturn // factory returns interface for dependency substitution.
+func buildInstancePrincipalMetricsClient(compartmentID string) (oci.MetricsClient, error) {
+	client, err := oci.NewInstancePrincipalClient(compartmentID)
+	if err != nil {
+		return nil, fmt.Errorf("new instance principal client: %w", err)
+	}
+
+	return &instancePrincipalMetricsClient{client: client}, nil
+}
+
+type instancePrincipalMetricsClient struct {
+	client *oci.Client
+}
+
+func (m *instancePrincipalMetricsClient) QueryP95CPU(
+	ctx context.Context,
+	resourceID string,
+) (float64, error) {
+	if m == nil || m.client == nil {
+		return 0, errMetricsDelegateNil
+	}
+
+	value, err := m.client.QueryP95CPU(ctx, resourceID, true)
+	if err != nil {
+		return 0, fmt.Errorf("query p95 cpu: %w", err)
+	}
+
+	return float64(value), nil
 }
 
 //nolint:ireturn // returns interface to support substitutable IMDS clients
