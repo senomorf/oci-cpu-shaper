@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -725,7 +726,8 @@ func TestDefaultIMDSFactoryUsesEnvironmentEndpoint(t *testing.T) {
 		"/opc/v2/instance/shape-config": `{"ocpus":2,"memoryInGBs":32}`,
 	}
 
-	server := httptest.NewServer(
+	server := newIPv4TestServer(
+		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			body, ok := responses[req.URL.Path]
 			if !ok {
@@ -952,7 +954,8 @@ func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
 }
 
 func TestMainIntegratesDefaultDependencies(t *testing.T) {
-	server := httptest.NewServer(
+	server := newIPv4TestServer(
+		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			switch req.URL.Path {
 			case "/opc/v2/instance/region":
@@ -1228,6 +1231,26 @@ func loadConfigStub() func(string) (runtimeConfig, error) {
 
 		return cfg, nil
 	}
+}
+
+// newIPv4TestServer binds to the IPv4 loopback explicitly so tests still work when
+// the sandbox forbids listening on IPv6.
+func newIPv4TestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewUnstartedServer(handler)
+
+	var lc net.ListenConfig
+
+	listener, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp4: %v", err)
+	}
+
+	server.Listener = listener
+	server.Start()
+
+	return server
 }
 
 type stubPoolStarter struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,7 +44,8 @@ func TestHTTPClientHappyPath(t *testing.T) {
 		shapeConfigResourcePath: shapeBody,
 	}
 
-	server := httptest.NewServer(
+	server := newIPv4TestServer(
+		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			payload, ok := responses[req.URL.Path]
 			if !ok {
@@ -83,7 +85,8 @@ func TestHTTPClientRetriesOnServerError(t *testing.T) {
 
 	var calls atomic.Int32
 
-	server := httptest.NewServer(
+	server := newIPv4TestServer(
+		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			if req.URL.Path != regionResourcePath {
 				t.Fatalf("unexpected path: %s", req.URL.Path)
@@ -255,7 +258,7 @@ func TestHTTPClientCloseFailure(t *testing.T) {
 func TestHTTPClientNonRetryableStatusIncludesBody(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(" not found \n"))
 	}))
@@ -281,7 +284,7 @@ func TestHTTPClientRetryBudgetExhaustedIncludesLastError(t *testing.T) {
 
 	var attempts atomic.Int32
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		attempts.Add(1)
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
@@ -360,7 +363,7 @@ func TestHTTPClientWaitHonorsContextCancellation(t *testing.T) {
 func TestShapeConfigDecodeError(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != shapeConfigResourcePath {
 			t.Fatalf("unexpected path: %s", req.URL.Path)
 		}
@@ -382,6 +385,26 @@ func TestShapeConfigDecodeError(t *testing.T) {
 	if !strings.Contains(err.Error(), "decode shape-config response") {
 		t.Fatalf("ShapeConfig() error = %v, want decode failure", err)
 	}
+}
+
+// newIPv4TestServer binds to the IPv4 loopback explicitly so tests still work when
+// the sandbox forbids listening on IPv6.
+func newIPv4TestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewUnstartedServer(handler)
+
+	var lc net.ListenConfig
+
+	listener, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp4: %v", err)
+	}
+
+	server.Listener = listener
+	server.Start()
+
+	return server
 }
 
 func requireNoError(t *testing.T, err error, msg string) {
