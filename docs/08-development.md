@@ -48,7 +48,7 @@ The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gof
 Every pull request also exercises the container delivery path. The CI workflow builds the image with `docker buildx build` using the `deploy/Dockerfile`, reuses GitHub Actions cache-backed layers for faster rebuilds, and tags the result locally as `oci-cpu-shaper:test`. A dry-run smoke test executes the packaged binary:
 
 ```bash
-docker run --rm oci-cpu-shaper:test --mode dry-run
+docker run --rm oci-cpu-shaper:test --mode dry-run --log-level debug --shutdown-after=4s
 ```
 
 After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made. The container image now ships `/etc/oci-cpu-shaper/config.yaml` with `oci.offline: true`, letting the packaged binary wire the adaptive controller using the static metrics client and fallback instance ID described in §9.2 so smoke tests succeed without IMDS or Monitoring credentials; unset `OCI_OFFLINE` or override the config when targeting real tenancy environments.

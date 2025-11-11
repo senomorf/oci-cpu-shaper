@@ -15,8 +15,9 @@ Three foundational flags align with §§3.1 and 5.2 of the implementation plan:
 | `--config` | Path to the primary YAML configuration file. Relative paths resolve from the current working directory. | `/etc/oci-cpu-shaper/config.yaml` |
 | `--log-level` | Structured logging level understood by the Zap logger (`debug`, `info`, `warn`, `error`, `dpanic`, `panic`, `fatal`). | `info` |
 | `--mode` | Controller operating mode. `dry-run` and `enforce` now spin up the adaptive controller with real OCI metrics, estimator sampling, and worker pools; `noop` keeps the historical bypass for smoke tests. | `dry-run` |
+| `--shutdown-after` | Optional duration that cancels the run context after the requested window, letting CI smoke tests and diagnostics shut down predictably without external supervisors. | `0s` (disabled) |
 
-Flags remain intentionally minimal so orchestration tools can template them alongside file-based configuration and environment overrides.
+Flags remain intentionally minimal so orchestration tools can template them alongside file-based configuration and environment overrides. When `--shutdown-after` is non-zero the CLI installs a context deadline and treats the resulting `context deadline exceeded`/`context canceled` errors as clean shutdowns so smoke tests can rely on exit status `0`.
 
 ## 9.2 Configuration Layout
 
@@ -74,8 +75,8 @@ Unset or malformed overrides fall back to the defaults shown above.
 
 ## 9.4 Diagnostics
 
-At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo` and echoes the selected mode. This gives operators immediate confirmation of the version, Git commit, and configuration path used for a run before any controllers mutate system state.
+At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo` and echoes the selected mode. When the shutdown timer is enabled the log also captures the requested duration so operators can confirm the controller will terminate automatically. This gives operators immediate confirmation of the version, Git commit, configuration path, and lifecycle expectations before any controllers mutate system state.
 
-Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, and unsupported log levels report a structured error before the logger is constructed. This keeps early runs predictable while new policy engines are still being prototyped.
+Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, unsupported log levels report a structured error before the logger is constructed, and negative `--shutdown-after` durations are rejected. This keeps early runs predictable while new policy engines are still being prototyped.
 
 Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios. Offline mode keeps this wiring intact by substituting the static metrics client so container smoke tests can run without live tenancy credentials.
