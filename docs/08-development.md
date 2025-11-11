@@ -18,11 +18,15 @@ The repository includes a `Makefile` that wraps the most common development task
 |---------|---------|
 | `make fmt` | Format all Go source files with `gofmt` followed by `gofumpt`. |
 | `make tools` | Install pinned developer tooling (e.g., `golangci-lint` v2.6.1, `gofumpt` v0.9.2). |
-| `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml` (auto-fixes formatting and lint findings where supported). |
+| `make lint` | Run `golangci-lint` with the configuration in `.golangci.yml` (auto-fixes formatting and lint findings where supported). This target also sets `GOLANGCI_LINT_CACHE` to `.cache/golangci`, so prefer `make lint` over calling `golangci-lint run` directly when working inside restricted sandboxes. |
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
 | `make coverage` | Generate a race-enabled coverage profile for production packages, save `coverage.out`/`coverage.txt`, and print the total percentage (CI enforces ≥85%). |
 | `make build` | Compile all packages to validate build readiness. |
+
+## Local caches
+
+The Makefile defines `GOCACHE_DIR` (`.cache/go`) and `GOLANGCI_LINT_CACHE_DIR` (`.cache/golangci`) relative to the repository root and injects them into the `make test` and `make lint` targets. These locally scoped caches keep Go build artifacts and linter facts inside the workspace so commands do not hit the runner’s global `~/.cache` tree, which may be read-only in restricted sandboxes. `.gitignore` excludes the `.cache/` directory, so the caches survive between runs without leaking into commits. You can run `go env -u GOCACHE` if you temporarily need to fall back to the default global cache.
 
 ### §14 Lint Auto-Fix Workflow
 
@@ -38,7 +42,7 @@ Running the `test` target enables the Go race detector by default, helping detec
 1. Update code and add or adjust tests.
 2. Run `make fmt` to normalize formatting with `gofmt` and `gofumpt`.
 3. Execute `make check` to run linting and race-enabled tests together (or `make lint` / `make test` individually); because linting applies auto-fixes, review `git status` afterward and stage the generated edits.
-4. Re-run `go test ./... -race` and `golangci-lint run` (or `make check`) until they pass—features and fixes must never ship while any test or lint job is failing (§11).
+4. Re-run `go test ./... -race` and `make lint` (or `make check`) until they pass—features and fixes must never ship while any test or lint job is failing (§11).
 5. Optionally execute `make build` to confirm the binary compiles successfully.
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.

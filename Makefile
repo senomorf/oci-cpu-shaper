@@ -23,6 +23,10 @@ GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+GOCACHE_DIR := $(ROOT_DIR)/.cache/go
+GOLANGCI_LINT_CACHE_DIR := $(ROOT_DIR)/.cache/golangci
+
 .PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage
 
 tools: ensure-golangci-lint ensure-gofumpt
@@ -50,7 +54,8 @@ fmt: ensure-gofumpt
 	fi
 
 lint: ensure-golangci-lint
-	$(GOLANGCI_LINT) run
+	@mkdir -p "$(GOLANGCI_LINT_CACHE_DIR)"
+	@GOLANGCI_LINT_CACHE="$(GOLANGCI_LINT_CACHE_DIR)" $(GOLANGCI_LINT) run
 
 ensure-gofumpt:
 	@set -euo pipefail; \
@@ -68,7 +73,8 @@ test:
 	@if [ -z "$(strip $(PKGS))" ]; then \
 		echo "No Go packages found; skipping tests."; \
 	else \
-		$(GO) test -race $(PKGS); \
+		mkdir -p "$(GOCACHE_DIR)"; \
+		GOCACHE="$(GOCACHE_DIR)" $(GO) test -race $(PKGS); \
 	fi
 
 coverage:
