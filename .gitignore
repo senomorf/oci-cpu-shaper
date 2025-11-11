@@ -42,3 +42,6 @@ release/
 
 # OS-generated files
 Thumbs.db
+
+# Local cache directories
+.cache/
