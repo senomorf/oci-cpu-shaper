@@ -10,6 +10,10 @@
 - Provide configuration presets (e.g., Compose snippets) that keep the shaper responsive while sustaining ≥23% P95 CPU (§§4, 6).
 - Add automated checks that surface misconfigured weights or ceilings before rollout, such as health endpoints exposing current controller limits (§4).
 
+## 5.2 Adaptive controller wiring
+- Wire the default CLI path to the adaptive controller using real OCI Monitoring clients, estimator sampling, and worker pools so `dry-run` and `enforce` execute the same slow-loop logic described in §§3.1 and 5.2 while `noop` remains a diagnostics bypass.
+- Document the YAML configuration keys and environment overrides that surface controller targets, cadences, worker counts, and the HTTP bind address so operators can tune deployments without drifting from the baseline thresholds in §5.2.
+
 ## 7.1 Alarm operations
 - Publish a reusable Terraform or CLI recipe mirroring the manual workflow in [`07-alarms.md`](07-alarms.md) so teams can provision alerts consistently (§7).
 - Integrate alarm status with deployment pipelines to block releases when Always Free guardrails are not in place (§7).

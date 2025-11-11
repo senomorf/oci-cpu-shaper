@@ -20,6 +20,7 @@ import (
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
 	"oci-cpu-shaper/pkg/imds"
+	"oci-cpu-shaper/pkg/oci"
 )
 
 var (
@@ -30,7 +31,10 @@ var (
 	errShapeDown         = errors.New("shape down")
 )
 
-const maxUint32 = ^uint32(0)
+const (
+	maxUint32         = ^uint32(0)
+	stubCompartmentID = "ocid1.compartment.oc1..test"
+)
 
 func TestParseArgsDefaults(t *testing.T) {
 	t.Parallel()
@@ -170,10 +174,22 @@ func TestRunSuccessfulPath(t *testing.T) {
 
 	var ctrl stubController
 
-	deps.newController = func(mode string) adapt.Controller {
+	pool := new(stubPoolStarter)
+
+	deps.loadConfig = loadConfigStub(stubCompartmentID)
+
+	deps.newController = func(
+		ctx context.Context,
+		mode string,
+		cfg runtimeConfig,
+		imdsClient imds.Client,
+	) (adapt.Controller, poolStarter, error) {
+		_ = ctx
+		_ = cfg
+		_ = imdsClient
 		ctrl.mode = mode
 
-		return &ctrl
+		return &ctrl, pool, nil
 	}
 
 	exitCode := run(
@@ -192,6 +208,10 @@ func TestRunSuccessfulPath(t *testing.T) {
 
 	if ctrl.mode != modeEnforce {
 		t.Fatalf("expected controller mode \"enforce\", got %q", ctrl.mode)
+	}
+
+	if pool.startCount != 1 {
+		t.Fatalf("expected pool Start to be called once, got %d", pool.startCount)
 	}
 
 	assertInfoLogEntry(t, observed.All(), "test-version", "test-commit", "2024-05-01")
@@ -258,10 +278,20 @@ func TestRunHandlesControllerError(t *testing.T) {
 		return logger, nil
 	}
 
-	deps.newController = func(mode string) adapt.Controller {
+	deps.loadConfig = loadConfigStub(stubCompartmentID)
+
+	deps.newController = func(
+		ctx context.Context,
+		mode string,
+		cfg runtimeConfig,
+		imdsClient imds.Client,
+	) (adapt.Controller, poolStarter, error) {
+		_ = ctx
+		_ = cfg
+		_ = imdsClient
 		ctrl.mode = mode
 
-		return &ctrl
+		return &ctrl, nil, nil
 	}
 
 	exitCode := run(
@@ -284,27 +314,164 @@ func TestRunHandlesControllerError(t *testing.T) {
 	}
 }
 
-func TestDefaultControllerFactoryHonorsMode(t *testing.T) {
+func TestRunHandlesControllerFactoryError(t *testing.T) {
 	t.Parallel()
 
-	controller := defaultControllerFactory("enforce")
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return stubBuildInfo("test-version", "", "")
+	}
+	deps.newLogger = func(string) (*zap.Logger, error) {
+		return zap.NewNop(), nil
+	}
+	deps.loadConfig = func(string) (runtimeConfig, error) {
+		cfg := defaultRuntimeConfig()
+		cfg.OCI.CompartmentID = stubCompartmentID
 
-	if got := controller.Mode(); got != modeEnforce {
-		t.Fatalf("expected controller mode %q, got %q", modeEnforce, got)
+		return cfg, nil
+	}
+	deps.newController = func(context.Context, string, runtimeConfig, imds.Client) (adapt.Controller, poolStarter, error) {
+		return nil, nil, errStubControllerRun
 	}
 
-	if _, ok := controller.(*adapt.NoopController); !ok {
-		t.Fatalf("expected default controller to be noop implementation, got %T", controller)
+	exitCode := run(t.Context(), []string{"--mode", "enforce"}, deps, io.Discard)
+	if exitCode != exitCodeRuntimeError {
+		t.Fatalf("expected runtime error exit code, got %d", exitCode)
 	}
 }
 
-func TestDefaultControllerFactoryFallsBackToNoop(t *testing.T) {
+func TestDefaultControllerFactoryReturnsNoopForMode(t *testing.T) {
 	t.Parallel()
 
-	controller := defaultControllerFactory("")
+	noopIMDS := new(stubIMDSClient)
+
+	controller, pool, err := defaultControllerFactory(
+		context.Background(),
+		modeNoop,
+		defaultRuntimeConfig(),
+		noopIMDS,
+	)
+	if err != nil {
+		t.Fatalf("defaultControllerFactory returned error: %v", err)
+	}
+
+	if pool != nil {
+		t.Fatalf("expected no pool for noop mode, got %#v", pool)
+	}
 
 	if got := controller.Mode(); got != modeNoop {
-		t.Fatalf("expected default controller mode %q, got %q", modeNoop, got)
+		t.Fatalf("expected controller mode %q, got %q", modeNoop, got)
+	}
+
+	if _, ok := controller.(*adapt.NoopController); !ok {
+		t.Fatalf("expected noop controller implementation, got %T", controller)
+	}
+}
+
+func TestDefaultControllerFactoryBuildsAdaptiveController(t *testing.T) {
+	t.Parallel()
+
+	originalFactory := newMetricsClient
+
+	t.Cleanup(func() { newMetricsClient = originalFactory })
+
+	fakeMetrics := newStubMetricsClient()
+	newMetricsClient = func(string) (oci.MetricsClient, error) {
+		return fakeMetrics, nil
+	}
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = "ocid1.compartment.oc1..controller"
+	cfg.Pool.Workers = 1
+	cfg.Estimator.Interval = 500 * time.Millisecond
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceID = "ocid1.instance.oc1..controller"
+
+	controller, pool, err := defaultControllerFactory(
+		context.Background(),
+		modeEnforce,
+		cfg,
+		imdsClient,
+	)
+	if err != nil {
+		t.Fatalf("defaultControllerFactory returned error: %v", err)
+	}
+
+	if pool == nil {
+		t.Fatal("expected pool to be returned for adaptive controller")
+	}
+
+	if controller.Mode() != modeEnforce {
+		t.Fatalf("expected enforce mode, got %q", controller.Mode())
+	}
+}
+
+func TestDefaultControllerFactoryErrorsOnMissingCompartmentID(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = ""
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceID = "ocid1.instance.oc1..missing"
+
+	_, _, err := defaultControllerFactory(
+		context.Background(),
+		modeDryRun,
+		cfg,
+		imdsClient,
+	)
+	if err == nil {
+		t.Fatal("expected error when compartment ID is missing")
+	}
+}
+
+func TestDefaultControllerFactoryPropagatesMetricsFailure(t *testing.T) {
+	t.Parallel()
+
+	originalFactory := newMetricsClient
+
+	t.Cleanup(func() { newMetricsClient = originalFactory })
+
+	newMetricsClient = func(string) (oci.MetricsClient, error) {
+		return nil, errStubControllerRun
+	}
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = "ocid1.compartment.oc1..metrics"
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceID = "ocid1.instance.oc1..metrics"
+
+	_, _, err := defaultControllerFactory(
+		context.Background(),
+		modeDryRun,
+		cfg,
+		imdsClient,
+	)
+	if err == nil {
+		t.Fatal("expected error when metrics client creation fails")
+	}
+}
+
+func TestDefaultControllerFactoryPropagatesIMDSError(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = "ocid1.compartment.oc1..imds"
+
+	failingIMDS := new(stubIMDSClient)
+	failingIMDS.instanceErr = errInstanceDown
+
+	_, _, err := defaultControllerFactory(
+		context.Background(),
+		modeDryRun,
+		cfg,
+		failingIMDS,
+	)
+	if err == nil {
+		t.Fatal("expected error when instance lookup fails")
 	}
 }
 
@@ -326,7 +493,7 @@ func TestMainSuccessDoesNotExit(t *testing.T) { //nolint:paralleltest // mutates
 
 	defer func() { os.Args = originalArgs }()
 
-	os.Args = []string{"oci-cpu-shaper"}
+	os.Args = []string{"oci-cpu-shaper", "--mode", "noop"}
 
 	main()
 
@@ -641,6 +808,33 @@ func stubBuildInfo(version, commit, date string) buildinfo.Info {
 		GitCommit: commit,
 		BuildDate: date,
 	}
+}
+
+func loadConfigStub(compartmentID string) func(string) (runtimeConfig, error) {
+	return func(string) (runtimeConfig, error) {
+		cfg := defaultRuntimeConfig()
+		cfg.OCI.CompartmentID = compartmentID
+
+		return cfg, nil
+	}
+}
+
+type stubPoolStarter struct {
+	startCount int
+}
+
+func (s *stubPoolStarter) Start(context.Context) {
+	s.startCount++
+}
+
+type stubMetricsAdapter struct{}
+
+func newStubMetricsClient() *stubMetricsAdapter {
+	return &stubMetricsAdapter{}
+}
+
+func (s *stubMetricsAdapter) QueryP95CPU(context.Context, string) (float64, error) {
+	return 0.25, nil
 }
 
 type stubIMDSClient struct {
