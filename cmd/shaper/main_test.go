@@ -930,7 +930,13 @@ func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
 	logger := zap.New(core)
 
 	client := newOfflineStubIMDS()
-	ctrl := &stubController{mode: modeEnforce, runErr: nil, runCalled: false}
+	ctrl := &stubController{
+		mode:        modeEnforce,
+		runErr:      nil,
+		runCalled:   false,
+		deadline:    time.Time{},
+		deadlineSet: false,
+	}
 
 	logIMDSMetadata(
 		context.Background(),
