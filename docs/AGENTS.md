@@ -1,7 +1,7 @@
 # AGENTS
 
 ## Scope: `docs/`
-- Keep documentation in sync with shipped behavior; update the files listed in §12 when related features change.
-- Highlight coverage expectations (CI ≥85%, enforced via `make coverage` and the CI coverage job) whenever documenting new workflows or test requirements.
-- Use concise headings mirroring the plan’s numbering (e.g., §§4–7) so readers can cross-reference easily.
-- Include OCI and kernel citations as in the plan; prefer Markdown links with reference-style footnotes when adding new sources.
+- Mirror current behavior: revise affected docs and `docs/CHANGELOG.md` per §12 whenever features/configs shift.
+- Capture QA rules: mention ≥85% coverage (`make coverage`) and the required test updates when you describe workflows.
+- Keep headings tight and aligned with plan section numbers (e.g., §§4–7) for quick cross-reference.
+- Preserve OCI/kernel citations; add new references using Markdown reference links.

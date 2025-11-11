@@ -1,14 +1,14 @@
 # AGENTS
 
 ## Repository scope
-- Follow `docs/initial-implementation-plan.md` for architecture; see §§5, 15 before adding modules.
-- Build with Go 1.24.x and ship static binaries for linux/amd64,arm64 (§4).
-- Keep docs current: update relevant files in `docs/` plus `docs/CHANGELOG.md` when behavior/config changes (§12).
-- Run `go test ./... -race` and `golangci-lint run` (auto-fix is enabled; rerun until clean and stage generated edits) before submitting PRs (§14); add/adjust tests per §11 when touching logic.
-- Keep statement coverage level with or above the CI floor (≥85% via `make coverage MIN_COVERAGE=85`) and expand tests for any new code paths to prevent regressions.
-- Prefer small, composable packages and avoid long-running busy loops (see §§3, 5, 10).
-- Maintain scoped `AGENTS.md` files per §8.4 of `docs/08-development.md`; prune or extend directory guidance as the code evolves.
-- During PR review, read the scoped instructions for every touched directory and confirm they remain accurate.
+- Architecture: follow `docs/initial-implementation-plan.md` (check §§5 & 15 before adding modules) and keep packages lean.
+- Toolchain: Go 1.24.x, static linux/amd64+arm64 binaries (§4).
+- QA: add/refresh tests with every logic change, then run `go test ./... -race` and `golangci-lint run` until clean (§§11, 14).
+- Coverage: keep statement coverage ≥85% via `make coverage MIN_COVERAGE=85`; extend suites when new paths appear.
+- Docs: sync `docs/` (including `docs/CHANGELOG.md`) plus any impacted READMEs/config samples when behavior or config shifts (§12).
+- Guidance hygiene: keep nested `AGENTS.md` files accurate; revise or prune stale rules as code moves (§8.4 of `docs/08-development.md`).
+- Performance: avoid busy loops; respect duty-cycle budgets from §§3 & 10.
+- Reviews: confirm instructions in every affected scope still apply and update them when they drift.
 
 ### Directory scopes
-- `cmd/`, `pkg/`, `docs/` have additional instructions in their own `AGENTS.md` files; obey nested guidance when editing.
+- `cmd/`, `pkg/`, `docs/` carry extra rules in local `AGENTS.md` files; nested guidance wins when editing.
