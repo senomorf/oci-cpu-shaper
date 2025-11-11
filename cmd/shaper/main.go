@@ -62,7 +62,7 @@ type poolStarter interface {
 	Start(ctx context.Context)
 }
 
-type metricsClientFactory func(compartmentID string) (oci.MetricsClient, error)
+type metricsClientFactory func(compartmentID, region string) (oci.MetricsClient, error)
 
 type metricsClientFactoryKey struct{}
 
@@ -94,7 +94,8 @@ var (
 	errControllerCompartmentRequired = errors.New(
 		"controller factory: OCI compartment ID is required",
 	)
-	errMetricsDelegateNil = errors.New("metrics client: nil delegate")
+	errControllerRegionRequired = errors.New("controller factory: OCI region is required")
+	errMetricsDelegateNil       = errors.New("metrics client: nil delegate")
 )
 
 func defaultRunDeps() runDeps {
@@ -127,29 +128,22 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		_ = logger.Sync()
 	}()
 
-	if opts.shutdownAfter > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, opts.shutdownAfter)
+	ctx, cancel := applyShutdownTimer(ctx, opts.shutdownAfter)
+	if cancel != nil {
 		defer cancel()
 	}
 
 	info := deps.currentBuildInfo()
-	fields := []zap.Field{
-		zap.String("version", info.Version),
-		zap.String("commit", info.GitCommit),
-		zap.String("buildDate", info.BuildDate),
-		zap.String("configPath", opts.configPath),
-		zap.String("mode", opts.mode),
-	}
-
-	if opts.shutdownAfter > 0 {
-		fields = append(fields, zap.Duration("shutdownAfter", opts.shutdownAfter))
-	}
-
-	logger.Info("starting oci-cpu-shaper", fields...)
+	logStartup(logger, info, opts)
 
 	imdsClient := deps.newIMDS()
+
+	cfg, _, metadataErr := prepareRunMetadata(ctx, cfg, imdsClient, opts.mode)
+	if metadataErr != nil {
+		logger.Error("failed to resolve oci metadata", zap.Error(metadataErr))
+
+		return exitCodeRuntimeError
+	}
 
 	controller, pool, buildErr := deps.newController(ctx, opts.mode, cfg, imdsClient)
 	if buildErr != nil {
@@ -162,11 +156,18 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		pool.Start(ctx)
 	}
 
-	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID, cfg.OCI.Offline)
+	logIMDSMetadata(
+		ctx,
+		logger,
+		imdsClient,
+		controller,
+		cfg.OCI.InstanceID,
+		cfg.OCI.CompartmentID,
+		cfg.OCI.Region,
+		cfg.OCI.Offline,
+	)
 
-	runErr := controller.Run(ctx)
-
-	return handleControllerRunResult(logger, runErr)
+	return handleControllerRunResult(logger, controller.Run(ctx))
 }
 
 func handleControllerRunResult(logger *zap.Logger, runErr error) int {
@@ -407,7 +408,12 @@ func buildAdaptiveController(
 		return nil, nil, errControllerCompartmentRequired
 	}
 
-	metricsClient, err := createMetricsClient(ctx, cfg, offline, compartmentID)
+	region := strings.TrimSpace(cfg.OCI.Region)
+	if region == "" && !offline {
+		return nil, nil, errControllerRegionRequired
+	}
+
+	metricsClient, err := createMetricsClient(ctx, cfg, offline, compartmentID, region)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -466,12 +472,123 @@ func resolveInstanceID(
 	return strings.TrimSpace(fetchedID), nil
 }
 
+type ociMetadata struct {
+	CompartmentID string
+	Region        string
+}
+
+func resolveCompartmentAndRegion(
+	ctx context.Context,
+	cfg runtimeConfig,
+	imdsClient imds.Client,
+) (ociMetadata, error) {
+	metadata := ociMetadata{
+		CompartmentID: strings.TrimSpace(cfg.OCI.CompartmentID),
+		Region:        strings.TrimSpace(cfg.OCI.Region),
+	}
+
+	if cfg.OCI.Offline {
+		return metadata, nil
+	}
+
+	if imdsClient == nil {
+		return ociMetadata{}, errControllerIMDSRequired
+	}
+
+	if metadata.CompartmentID == "" {
+		compartmentID, err := imdsClient.CompartmentID(ctx)
+		if err != nil {
+			return ociMetadata{}, fmt.Errorf("lookup compartment ocid: %w", err)
+		}
+
+		metadata.CompartmentID = strings.TrimSpace(compartmentID)
+	}
+
+	if metadata.Region == "" {
+		region, err := imdsClient.Region(ctx)
+		if err != nil {
+			return ociMetadata{}, fmt.Errorf("lookup instance region: %w", err)
+		}
+
+		metadata.Region = strings.TrimSpace(region)
+	}
+
+	if metadata.CompartmentID == "" {
+		return ociMetadata{}, errControllerCompartmentRequired
+	}
+
+	if metadata.Region == "" {
+		return ociMetadata{}, errControllerRegionRequired
+	}
+
+	return metadata, nil
+}
+
+func prepareRunMetadata(
+	ctx context.Context,
+	cfg runtimeConfig,
+	imdsClient imds.Client,
+	mode string,
+) (runtimeConfig, ociMetadata, error) {
+	trimmedMode := strings.TrimSpace(mode)
+	if trimmedMode == modeNoop {
+		var empty ociMetadata
+
+		return cfg, empty, nil
+	}
+
+	metadata, err := resolveCompartmentAndRegion(ctx, cfg, imdsClient)
+	if err != nil {
+		return cfg, ociMetadata{}, err
+	}
+
+	if metadata.CompartmentID != "" {
+		cfg.OCI.CompartmentID = metadata.CompartmentID
+	}
+
+	if metadata.Region != "" {
+		cfg.OCI.Region = metadata.Region
+	}
+
+	return cfg, metadata, nil
+}
+
+func applyShutdownTimer(
+	ctx context.Context,
+	timeout time.Duration,
+) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, nil
+	}
+
+	newCtx, cancel := context.WithTimeout(ctx, timeout)
+
+	return newCtx, cancel
+}
+
+func logStartup(logger *zap.Logger, info buildinfo.Info, opts options) {
+	fields := []zap.Field{
+		zap.String("version", info.Version),
+		zap.String("commit", info.GitCommit),
+		zap.String("buildDate", info.BuildDate),
+		zap.String("configPath", opts.configPath),
+		zap.String("mode", opts.mode),
+	}
+
+	if opts.shutdownAfter > 0 {
+		fields = append(fields, zap.Duration("shutdownAfter", opts.shutdownAfter))
+	}
+
+	logger.Info("starting oci-cpu-shaper", fields...)
+}
+
 //nolint:ireturn // wiring requires interface for factories.
 func createMetricsClient(
 	ctx context.Context,
 	cfg runtimeConfig,
 	offline bool,
 	compartmentID string,
+	region string,
 ) (oci.MetricsClient, error) {
 	if offline {
 		return oci.NewStaticMetricsClient(cfg.Controller.TargetStart), nil
@@ -479,7 +596,7 @@ func createMetricsClient(
 
 	factory := metricsClientFactoryFromContext(ctx)
 
-	metricsClient, err := factory(compartmentID)
+	metricsClient, err := factory(compartmentID, region)
 	if err != nil {
 		return nil, fmt.Errorf("build monitoring client: %w", err)
 	}
@@ -488,8 +605,8 @@ func createMetricsClient(
 }
 
 //nolint:ireturn // factory returns interface for dependency substitution.
-func buildInstancePrincipalMetricsClient(compartmentID string) (oci.MetricsClient, error) {
-	client, err := oci.NewInstancePrincipalClient(compartmentID)
+func buildInstancePrincipalMetricsClient(compartmentID, region string) (oci.MetricsClient, error) {
+	client, err := oci.NewInstancePrincipalClient(compartmentID, region)
 	if err != nil {
 		return nil, fmt.Errorf("new instance principal client: %w", err)
 	}
@@ -535,6 +652,8 @@ func logIMDSMetadata(
 	client imds.Client,
 	controller adapt.Controller,
 	overrideInstanceID string,
+	overrideCompartmentID string,
+	overrideRegion string,
 	offline bool,
 ) {
 	fields := []zap.Field{
@@ -543,6 +662,8 @@ func logIMDSMetadata(
 	}
 
 	trimmedOverride := strings.TrimSpace(overrideInstanceID)
+	trimmedCompartment := strings.TrimSpace(overrideCompartmentID)
+	trimmedRegion := strings.TrimSpace(overrideRegion)
 
 	if offline {
 		if trimmedOverride != "" {
@@ -554,7 +675,15 @@ func logIMDSMetadata(
 		return
 	}
 
-	fields = appendOnlineMetadata(ctx, logger, client, fields, trimmedOverride)
+	fields = appendOnlineMetadata(
+		ctx,
+		logger,
+		client,
+		fields,
+		trimmedOverride,
+		trimmedCompartment,
+		trimmedRegion,
+	)
 
 	logger.Debug("initialized subsystems", fields...)
 }
@@ -610,44 +739,62 @@ func appendShapeFields(fields []zap.Field, shape imds.ShapeConfig, err error) []
 	)
 }
 
+func resolveMetadataValue(
+	ctx context.Context,
+	logger *zap.Logger,
+	override string,
+	fetch func(context.Context) (string, error),
+	warnMsg string,
+) (string, error) {
+	trimmed := strings.TrimSpace(override)
+	if trimmed != "" {
+		return trimmed, nil
+	}
+
+	return queryTextMetadata(ctx, logger, fetch, warnMsg)
+}
+
 func appendOnlineMetadata(
 	ctx context.Context,
 	logger *zap.Logger,
 	client imds.Client,
 	fields []zap.Field,
 	overrideInstanceID string,
+	overrideCompartmentID string,
+	overrideRegion string,
 ) []zap.Field {
-	region, regionErr := queryTextMetadata(
+	region, regionErr := resolveMetadataValue(
 		ctx,
 		logger,
+		overrideRegion,
 		client.Region,
 		"failed to query instance region",
 	)
-	canonicalRegion, canonicalRegionErr := queryTextMetadata(
+
+	canonicalRegion, canonicalRegionErr := resolveMetadataValue(
 		ctx,
 		logger,
+		overrideRegion,
 		client.CanonicalRegion,
 		"failed to query canonical region",
 	)
 
-	instanceID := overrideInstanceID
-
-	var instanceErr error
-	if instanceID == "" {
-		instanceID, instanceErr = queryTextMetadata(
-			ctx,
-			logger,
-			client.InstanceID,
-			"failed to query instance OCID",
-		)
-	}
-
-	compartmentID, compartmentErr := queryTextMetadata(
+	instanceID, instanceErr := resolveMetadataValue(
 		ctx,
 		logger,
+		overrideInstanceID,
+		client.InstanceID,
+		"failed to query instance OCID",
+	)
+
+	compartmentID, compartmentErr := resolveMetadataValue(
+		ctx,
+		logger,
+		overrideCompartmentID,
 		client.CompartmentID,
 		"failed to query compartment OCID",
 	)
+
 	shapeCfg, shapeErr := queryShapeMetadata(
 		ctx,
 		logger,

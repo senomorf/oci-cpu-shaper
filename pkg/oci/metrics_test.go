@@ -469,7 +469,7 @@ func TestNewInstancePrincipalClientPropagatesProviderError(t *testing.T) {
 		return nil, errForcedFailure
 	})
 
-	_, err := NewInstancePrincipalClient("ocid1.compartment.oc1..exampleuniqueID")
+	_, err := NewInstancePrincipalClient("ocid1.compartment.oc1..exampleuniqueID", "us-ashburn-1")
 	if err == nil || !strings.Contains(err.Error(), "build instance principal provider") {
 		t.Fatalf("expected wrapped provider error, got %v", err)
 	}
@@ -493,7 +493,7 @@ func TestNewInstancePrincipalClientPropagatesClientError(t *testing.T) {
 		},
 	)
 
-	_, err := NewInstancePrincipalClient("ocid1.compartment.oc1..exampleuniqueID")
+	_, err := NewInstancePrincipalClient("ocid1.compartment.oc1..exampleuniqueID", "us-ashburn-1")
 	if err == nil || !strings.Contains(err.Error(), "create monitoring client") {
 		t.Fatalf("expected monitoring client error, got %v", err)
 	}
@@ -517,7 +517,10 @@ func TestNewInstancePrincipalClientSuccess(t *testing.T) {
 		},
 	)
 
-	client, err := NewInstancePrincipalClient("ocid1.compartment.oc1..exampleuniqueID")
+	client, err := NewInstancePrincipalClient(
+		"ocid1.compartment.oc1..exampleuniqueID",
+		"us-ashburn-1",
+	)
 	requireNoError(t, err, "construct instance principal client")
 
 	if client == nil {
