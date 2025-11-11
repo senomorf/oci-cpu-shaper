@@ -23,6 +23,8 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - CLI `--mode` handling now starts the adaptive controller in `dry-run`/`enforce`, keeps `noop` as a diagnostics bypass, and logs configuration failures surfaced by the new YAML/environment loader. Updated docs in §§5 and 9 describe the operating modes and tunable configuration.
 - Raised the CI statement coverage floor to 85% and filtered `make coverage` to exclude developer tooling packages (for example, `cmd/agentscheck`), bringing the latest production-only run to 86.6% while keeping the threshold focused on shipped code paths (§11).
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
+- §11 development workflow now mandates shipping changes only after `go test ./... -race` and `golangci-lint run` succeed, reinforcing the all-tests-pass requirement alongside the existing ≥85% coverage guardrail.
+- CLI runtime configuration accepts an `oci.instanceId`/`OCI_INSTANCE_ID` override so dry-run and enforce modes can bootstrap when IMDS access is unavailable (e.g., CI smoke tests), with docs refreshed in §§2 and 9.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
 - CI and release automation now leverage GitHub Actions caching to speed linting, testing, and multi-architecture builds (§14).

@@ -17,3 +17,4 @@ http:
   bind: ":9200"
 oci:
   compartmentId: "ocid1.compartment.oc1..exampleuniqueID"
+  instanceId: "ocid1.instance.oc1..config"

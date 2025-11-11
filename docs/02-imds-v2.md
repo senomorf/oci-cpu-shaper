@@ -20,6 +20,6 @@ The client trims trailing whitespace for text resources and decodes the shape pa
 
 ## 2.3 Configuration overrides
 
-`cmd/shaper` reads the optional `OCI_CPU_SHAPER_IMDS_ENDPOINT` environment variable during startup. When set, the binary targets the supplied base URL (for example, a local IMDS emulator used in integration tests); otherwise it falls back to the default link-local endpoint. Additional knobs—such as retry budgets or alternative transports—should extend the same environment-variable pattern and must be documented here alongside updates to `docs/CHANGELOG.md`.
+`cmd/shaper` reads the optional `OCI_CPU_SHAPER_IMDS_ENDPOINT` environment variable during startup. When set, the binary targets the supplied base URL (for example, a local IMDS emulator used in integration tests); otherwise it falls back to the default link-local endpoint. Operators can also supply `oci.instanceId` in the YAML configuration or `OCI_INSTANCE_ID` via the environment to bypass live metadata calls entirely—useful for CI smoke tests or staged deployments that lack IMDS access. Additional knobs—such as retry budgets or alternative transports—should extend the same environment-variable pattern and must be documented here alongside updates to `docs/CHANGELOG.md`.
 
 [^oci-imds]: Oracle Cloud Infrastructure, "Getting Instance Metadata". <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm>
