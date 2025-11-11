@@ -4,9 +4,11 @@ The OCI CPU Shaper project provides tools for shaping and orchestrating CPU reso
 
 This overview summarizes the high-level vision and pointers to additional documentation:
 
-- **Architecture and Services** – Describes how command-line tooling, shared packages, and deployment assets fit together. (See forthcoming documents in the `docs/` directory.)
-- **Operational Guidance** – Covers build metadata, configuration options, and integration points with OCI metadata services.
-- **Contributor Reference** – Explains conventions for extending components in `cmd/`, `pkg/`, and `internal/`.
+- **IAM and Policies** – Configure dynamic groups and Monitoring permissions so instance principals can query tenancy metrics. See [`01-oci-policy.md`](./01-oci-policy.md).
+- **Always Free Guardrails** – Track Oracle’s reclaim thresholds and remediation playbooks. See [`03-free-tier-reclaim.md`](./03-free-tier-reclaim.md).
+- **CPU Control Surfaces** – Tune cgroup v2 weights and optional ceilings exposed by container runtimes and Quadlet. See [`04-cgroups-v2.md`](./04-cgroups-v2.md).
+- **Monitoring & Alerts** – Issue tenant-signed MQL requests and wire alarms that mirror reclaim detection. See [`05-monitoring-mql.md`](./05-monitoring-mql.md) and [`07-alarms.md`](./07-alarms.md).
+- **Contributor Reference** – Explains conventions for extending components in `cmd/`, `pkg/`, and `internal/` while satisfying coverage and lint requirements.
 
 ## §5 Configuration and CLI Surfaces
 
