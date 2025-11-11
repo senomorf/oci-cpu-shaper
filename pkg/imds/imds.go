@@ -10,8 +10,12 @@ const DefaultEndpoint = "http://169.254.169.254/opc/v2"
 type Client interface {
 	// Region returns the canonical region for the running instance.
 	Region(ctx context.Context) (string, error)
+	// CanonicalRegion returns the canonical region name for the running instance.
+	CanonicalRegion(ctx context.Context) (string, error)
 	// InstanceID returns the OCID of the running instance.
 	InstanceID(ctx context.Context) (string, error)
+	// CompartmentID returns the compartment OCID for the running instance.
+	CompartmentID(ctx context.Context) (string, error)
 	// ShapeConfig returns the compute shape attributes for the instance.
 	ShapeConfig(ctx context.Context) (ShapeConfig, error)
 }
