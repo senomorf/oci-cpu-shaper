@@ -683,12 +683,14 @@ func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
 			MaxVnicAttachments:        0,
 		},
 		shapeErr:      nil,
+		regionCalls:   0,
 		instanceCalls: 0,
+		shapeCalls:    0,
 	}
 
 	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
 
-	logIMDSMetadata(context.Background(), logger, client, ctrl, "")
+	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
 	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
 	if len(entries) == 0 {
@@ -734,12 +736,14 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 			MaxVnicAttachments:        0,
 		},
 		shapeErr:      errShapeDown,
+		regionCalls:   0,
 		instanceCalls: 0,
+		shapeCalls:    0,
 	}
 
 	ctrl := &stubController{mode: modeNoop, runErr: nil, runCalled: false}
 
-	logIMDSMetadata(context.Background(), logger, client, ctrl, "")
+	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
 	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
 	if len(warns) != 3 {
@@ -768,12 +772,21 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 			MaxVnicAttachments:        0,
 		},
 		shapeErr:      nil,
+		regionCalls:   0,
 		instanceCalls: 0,
+		shapeCalls:    0,
 	}
 
 	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
 
-	logIMDSMetadata(context.Background(), logger, client, ctrl, "  ocid1.instance.oc1..override  ")
+	logIMDSMetadata(
+		context.Background(),
+		logger,
+		client,
+		ctrl,
+		"  ocid1.instance.oc1..override  ",
+		false,
+	)
 
 	if client.instanceCalls != 0 {
 		t.Fatalf(
@@ -796,6 +809,28 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 	if len(warns) != 0 {
 		t.Fatalf("expected no warnings, got %d", len(warns))
 	}
+}
+
+func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	client := newOfflineStubIMDS()
+	ctrl := &stubController{mode: modeEnforce, runErr: nil, runCalled: false}
+
+	logIMDSMetadata(
+		context.Background(),
+		logger,
+		client,
+		ctrl,
+		"  ocid1.instance.oc1..offline  ",
+		true,
+	)
+
+	assertNoIMDSCalls(t, client)
+	assertOfflineLog(t, observed, "ocid1.instance.oc1..offline")
 }
 
 func TestMainIntegratesDefaultDependencies(t *testing.T) {
@@ -906,6 +941,22 @@ func fieldString(fields []zap.Field, key string) string {
 	return ""
 }
 
+func fieldBool(fields []zap.Field, key string) (bool, bool) {
+	for _, field := range fields {
+		if field.Key != key {
+			continue
+		}
+
+		if field.Type == zapcore.BoolType {
+			return field.Integer != 0, true
+		}
+
+		return false, true
+	}
+
+	return false, false
+}
+
 func fieldFloat(fields []zap.Field, key string) float64 {
 	for _, field := range fields {
 		if field.Key != key {
@@ -976,10 +1027,14 @@ type stubIMDSClient struct {
 	instanceErr   error
 	shape         imds.ShapeConfig
 	shapeErr      error
+	regionCalls   int
 	instanceCalls int
+	shapeCalls    int
 }
 
 func (s *stubIMDSClient) Region(context.Context) (string, error) {
+	s.regionCalls++
+
 	return s.region, s.regionErr
 }
 
@@ -990,5 +1045,65 @@ func (s *stubIMDSClient) InstanceID(context.Context) (string, error) {
 }
 
 func (s *stubIMDSClient) ShapeConfig(context.Context) (imds.ShapeConfig, error) {
+	s.shapeCalls++
+
 	return s.shape, s.shapeErr
+}
+
+func newOfflineStubIMDS() *stubIMDSClient {
+	return &stubIMDSClient{
+		region:      "",
+		regionErr:   errRegionDown,
+		instanceID:  "",
+		instanceErr: errInstanceDown,
+		shape: imds.ShapeConfig{
+			OCPUs:                     0,
+			MemoryInGBs:               0,
+			BaselineOcpuUtilization:   "",
+			BaselineOCPUs:             0,
+			ThreadsPerCore:            0,
+			NetworkingBandwidthInGbps: 0,
+			MaxVnicAttachments:        0,
+		},
+		shapeErr:      errShapeDown,
+		regionCalls:   0,
+		instanceCalls: 0,
+		shapeCalls:    0,
+	}
+}
+
+func assertNoIMDSCalls(t *testing.T, client *stubIMDSClient) {
+	t.Helper()
+
+	if client.regionCalls != 0 || client.instanceCalls != 0 || client.shapeCalls != 0 {
+		t.Fatalf(
+			"expected offline mode to skip imds lookups, got region=%d instance=%d shape=%d",
+			client.regionCalls,
+			client.instanceCalls,
+			client.shapeCalls,
+		)
+	}
+}
+
+func assertOfflineLog(t *testing.T, observed *observer.ObservedLogs, expectedID string) {
+	t.Helper()
+
+	if warns := observed.FilterLevelExact(zapcore.WarnLevel).All(); len(warns) != 0 {
+		t.Fatalf("expected no warnings, got %d", len(warns))
+	}
+
+	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
+	if len(entries) != 1 {
+		t.Fatalf("expected single debug entry, got %d", len(entries))
+	}
+
+	entry := entries[0]
+	if got := fieldString(entry.Context, "instanceID"); got != expectedID {
+		t.Fatalf("expected trimmed override instance id, got %q", got)
+	}
+
+	offline, ok := fieldBool(entry.Context, "offline")
+	if !ok || !offline {
+		t.Fatalf("expected offline field to be true, got %v (ok=%v)", offline, ok)
+	}
 }

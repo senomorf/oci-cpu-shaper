@@ -157,7 +157,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		pool.Start(ctx)
 	}
 
-	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID)
+	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID, cfg.OCI.Offline)
 
 	runErr := controller.Run(ctx)
 	if runErr != nil {
@@ -446,13 +446,31 @@ func logIMDSMetadata(
 	client imds.Client,
 	controller adapt.Controller,
 	overrideInstanceID string,
+	offline bool,
 ) {
+	fields := []zap.Field{
+		zap.String("controllerMode", controller.Mode()),
+		zap.Bool("offline", offline),
+	}
+
+	trimmedOverride := strings.TrimSpace(overrideInstanceID)
+
+	if offline {
+		if trimmedOverride != "" {
+			fields = append(fields, zap.String("instanceID", trimmedOverride))
+		}
+
+		logger.Debug("initialized subsystems", fields...)
+
+		return
+	}
+
 	region, regionErr := client.Region(ctx)
 	if regionErr != nil {
 		logger.Warn("failed to query instance region", zap.Error(regionErr))
 	}
 
-	instanceID := strings.TrimSpace(overrideInstanceID)
+	instanceID := trimmedOverride
 
 	var instanceErr error
 	if instanceID == "" {
@@ -465,10 +483,6 @@ func logIMDSMetadata(
 	shapeCfg, shapeErr := client.ShapeConfig(ctx)
 	if shapeErr != nil {
 		logger.Warn("failed to query instance shape config", zap.Error(shapeErr))
-	}
-
-	fields := []zap.Field{
-		zap.String("controllerMode", controller.Mode()),
 	}
 
 	if regionErr == nil {
