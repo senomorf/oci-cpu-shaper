@@ -1,5 +1,25 @@
 # Roadmap
 
+## 3.1 Adaptive control loop
+- Implement the fast one-second duty-cycle workers that react to host load and drop activity when contention is detected (§3.1).
+- Wire the hourly P95 feedback loop with fallback mode and relaxed cadence handling for sustained healthy readings (§3.1).
+- Export controller state via the `/metrics` endpoint so operators can compare local telemetry with OCI Monitoring (§3.2).
+
+## 4.1 CPU control integration
+- Validate cgroup v2 `cpu.weight` mappings across Docker, containerd, and Quadlet installs; document any runtime-specific quirks in [`04-cgroups-v2.md`](04-cgroups-v2.md) (§4).
+- Provide configuration presets (e.g., Compose snippets) that keep the shaper responsive while sustaining ≥23% P95 CPU (§§4, 6).
+- Add automated checks that surface misconfigured weights or ceilings before rollout, such as health endpoints exposing current controller limits (§4).
+
+## 7.1 Alarm operations
+- Publish a reusable Terraform or CLI recipe mirroring the manual workflow in [`07-alarms.md`](07-alarms.md) so teams can provision alerts consistently (§7).
+- Integrate alarm status with deployment pipelines to block releases when Always Free guardrails are not in place (§7).
+- Capture a runbook entry mapping alarm payloads to tuning guidance in [`03-free-tier-reclaim.md`](03-free-tier-reclaim.md) (§7).
+
+## 12.1 Documentation coverage
+- Completed: Authored [`01-oci-policy.md`](01-oci-policy.md), [`03-free-tier-reclaim.md`](03-free-tier-reclaim.md), [`04-cgroups-v2.md`](04-cgroups-v2.md), and [`07-alarms.md`](07-alarms.md) to match the implementation plan (§12).
+- Pending: Add CLI deep dives and deployment walkthroughs for `cmd/shaper` once the adaptive controller stabilises (§§5, 6, 9).
+- Pending: Expand contributor onboarding material with QA workflows that emphasise the ≥85% coverage floor (§11).
+
 ## 14.1 CI automation
 - Run `golangci-lint` with the repository defaults on every pull request to catch regressions early (§14).
 - Execute `go test ./... -race` for all targets so concurrency issues surface during review (§14).
