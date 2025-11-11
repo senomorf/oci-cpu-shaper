@@ -460,7 +460,7 @@ func requireIMDSAuthHeader(t *testing.T, req *http.Request) {
 	}
 }
 
-func newIMDSTestClient(t *testing.T, responses map[string]string) imds.Client {
+func newIMDSTestClient(t *testing.T, responses map[string]string) *imds.HTTPClient {
 	t.Helper()
 
 	server := newIPv4TestServer(
@@ -481,7 +481,14 @@ func newIMDSTestClient(t *testing.T, responses map[string]string) imds.Client {
 	httpClient := server.Client()
 	httpClient.Timeout = time.Second
 
-	return imds.NewClient(httpClient, imds.WithBaseURL(server.URL+"/opc/v2"))
+	client := imds.NewClient(httpClient, imds.WithBaseURL(server.URL+"/opc/v2"))
+
+	httpMetadataClient, ok := client.(*imds.HTTPClient)
+	if !ok {
+		t.Fatalf("unexpected client type %T", client)
+	}
+
+	return httpMetadataClient
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
