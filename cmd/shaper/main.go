@@ -61,7 +61,30 @@ type poolStarter interface {
 
 type metricsClientFactory func(compartmentID string) (oci.MetricsClient, error)
 
-var newMetricsClient metricsClientFactory = buildInstancePrincipalMetricsClient //nolint:gochecknoglobals // test shim
+type metricsClientFactoryKey struct{}
+
+func withMetricsClientFactory(ctx context.Context, factory metricsClientFactory) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if factory == nil {
+		return ctx
+	}
+
+	return context.WithValue(ctx, metricsClientFactoryKey{}, factory)
+}
+
+func metricsClientFactoryFromContext(ctx context.Context) metricsClientFactory {
+	if ctx != nil {
+		if factory, ok := ctx.Value(metricsClientFactoryKey{}).(metricsClientFactory); ok &&
+			factory != nil {
+			return factory
+		}
+	}
+
+	return buildInstancePrincipalMetricsClient
+}
 
 var (
 	errControllerIMDSRequired        = errors.New("controller factory: imds client is required")
@@ -296,7 +319,9 @@ func buildAdaptiveController(
 		return nil, nil, errControllerCompartmentRequired
 	}
 
-	metricsClient, err := newMetricsClient(compartmentID)
+	factory := metricsClientFactoryFromContext(ctx)
+
+	metricsClient, err := factory(compartmentID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build monitoring client: %w", err)
 	}
