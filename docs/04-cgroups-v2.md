@@ -27,7 +27,7 @@ This configuration caps the shaper at 30% of one CPU while still allowing bursts
 
 - Inspect `/sys/fs/cgroup/<slice>/cpu.weight` and `/sys/fs/cgroup/<slice>/cpu.max` to confirm runtime configuration.
 - Read `/sys/fs/cgroup/<slice>/cpu.stat` for throttling counters and to verify that any configured `cpu.max` value is not hit continuously.
-- Pair these checks with the shaper’s telemetry outputs once the `/metrics` endpoint ships (tracked in `docs/ROADMAP.md` §3.1) and with the MQL queries described in `docs/05-monitoring-mql.md`.
+- Pair these checks with the shaper’s `/metrics` output and MQL queries described in `docs/05-monitoring-mql.md`.
 
 Document any new tunables in this file and `docs/CHANGELOG.md` so operators have a single source of truth for CPU control behaviour.
 

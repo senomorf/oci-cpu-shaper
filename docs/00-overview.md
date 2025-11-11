@@ -32,7 +32,7 @@ sources:
     endpoint: "https://169.254.169.254/opc/v2"
 ```
 
-The CLI flags override matching keys in the configuration file, allowing operators to bootstrap with environment defaults and apply targeted overrides for experiments or incident response. The binary currently instantiates the placeholder controller returned by `adapt.NewNoopController`, so the selected mode only affects logging until the adaptive loop from `pkg/adapt` is integrated (tracked in `docs/ROADMAP.md` §3.1).
+The CLI flags override matching keys in the configuration file, allowing operators to bootstrap with environment defaults and apply targeted overrides for experiments or incident response.
 
 For additional detail on daily CLI usage patterns and option semantics, refer to [`09-cli.md`](./09-cli.md).
 

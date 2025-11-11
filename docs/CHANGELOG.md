@@ -29,6 +29,3 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - `.tool-versions` now pins `golangci-lint` v2.6.1 and `gofumpt` v0.9.2 so `mise`/`asdf` environments surface the same linting behaviour developers see in CI (§14).
 - `golangci-lint` now runs with depguard allow-listing for module imports and `issues.fix: true`, letting formatters auto-apply fixes while docs instruct contributors to stage the generated edits (§14).
 - Overview and Monitoring documentation now link to the IAM, reclaim, cgroup, and alarm guides so operators can navigate the consolidated Always Free playbook (§§0, 5).
-
-### Known gaps
-- The HTTP `/metrics` endpoint and adaptive controller integration remain pending. `cmd/shaper` still instantiates `adapt.NewNoopController`, so controller modes only affect logging until the roadmap items in §3.1 land.
