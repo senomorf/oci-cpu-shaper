@@ -23,6 +23,11 @@ import (
 var (
 	errNoMockResponse = errors.New("http mock: no response configured")
 	errForcedFailure  = errors.New("http mock: forced failure")
+
+	providerOverrides     []providerOverride   //nolint:gochecknoglobals
+	providerOverrideSeq   uint64               //nolint:gochecknoglobals
+	monitoringOverrides   []monitoringOverride //nolint:gochecknoglobals
+	monitoringOverrideSeq uint64               //nolint:gochecknoglobals
 )
 
 type httpVerifyingClient struct {
@@ -826,7 +831,13 @@ func overrideInstancePrincipalProvider(
 
 	instancePrincipalProviderMu.Lock()
 
-	original := instancePrincipalProviderFn
+	providerOverrideSeq++
+	overrideID := providerOverrideSeq
+
+	providerOverrides = append(
+		providerOverrides,
+		providerOverride{id: overrideID, fn: provider},
+	)
 	instancePrincipalProviderFn = provider
 
 	instancePrincipalProviderMu.Unlock()
@@ -834,7 +845,22 @@ func overrideInstancePrincipalProvider(
 	t.Cleanup(func() {
 		instancePrincipalProviderMu.Lock()
 
-		instancePrincipalProviderFn = original
+		for i := range providerOverrides {
+			if providerOverrides[i].id == overrideID {
+				providerOverrides = append(
+					providerOverrides[:i],
+					providerOverrides[i+1:]...,
+				)
+
+				break
+			}
+		}
+
+		if n := len(providerOverrides); n > 0 {
+			instancePrincipalProviderFn = providerOverrides[n-1].fn
+		} else {
+			instancePrincipalProviderFn = defaultInstancePrincipalProvider
+		}
 
 		instancePrincipalProviderMu.Unlock()
 	})
@@ -848,7 +874,13 @@ func overrideNewMonitoringClient(
 
 	newMonitoringClientMu.Lock()
 
-	original := newMonitoringClientFn
+	monitoringOverrideSeq++
+	overrideID := monitoringOverrideSeq
+
+	monitoringOverrides = append(
+		monitoringOverrides,
+		monitoringOverride{id: overrideID, fn: constructor},
+	)
 	newMonitoringClientFn = constructor
 
 	newMonitoringClientMu.Unlock()
@@ -856,13 +888,38 @@ func overrideNewMonitoringClient(
 	t.Cleanup(func() {
 		newMonitoringClientMu.Lock()
 
-		newMonitoringClientFn = original
+		for i := range monitoringOverrides {
+			if monitoringOverrides[i].id == overrideID {
+				monitoringOverrides = append(
+					monitoringOverrides[:i],
+					monitoringOverrides[i+1:]...,
+				)
+
+				break
+			}
+		}
+
+		if n := len(monitoringOverrides); n > 0 {
+			newMonitoringClientFn = monitoringOverrides[n-1].fn
+		} else {
+			newMonitoringClientFn = defaultNewMonitoringClientFn
+		}
 
 		newMonitoringClientMu.Unlock()
 	})
 }
 
-func stubConfigurationProvider(t *testing.T) common.ConfigurationProvider { //nolint:ireturn
+type providerOverride struct {
+	id uint64
+	fn func() (common.ConfigurationProvider, error)
+}
+
+type monitoringOverride struct {
+	id uint64
+	fn func(common.ConfigurationProvider) (monitoring.MonitoringClient, error)
+}
+
+func stubConfigurationProvider(t *testing.T) fakeConfigurationProvider {
 	t.Helper()
 
 	key := testPrivateKey(t)
