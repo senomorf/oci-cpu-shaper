@@ -475,6 +475,53 @@ func TestDefaultControllerFactoryPropagatesIMDSError(t *testing.T) {
 	}
 }
 
+func TestBuildAdaptiveControllerUsesConfiguredInstanceID(t *testing.T) {
+	t.Parallel()
+
+	originalFactory := newMetricsClient
+
+	t.Cleanup(func() { newMetricsClient = originalFactory })
+
+	stubMetrics := newStubMetricsClient()
+	newMetricsClient = func(compartmentID string) (oci.MetricsClient, error) {
+		if compartmentID != testCompartmentOverride {
+			t.Fatalf("unexpected compartment id: %s", compartmentID)
+		}
+
+		return stubMetrics, nil
+	}
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = testCompartmentOverride
+	cfg.OCI.InstanceID = "  ocid1.instance.oc1..override  "
+	cfg.Pool.Workers = 1
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceErr = errInstanceDown
+
+	controller, pool, err := buildAdaptiveController(
+		context.Background(),
+		modeDryRun,
+		cfg,
+		imdsClient,
+	)
+	if err != nil {
+		t.Fatalf("buildAdaptiveController returned error: %v", err)
+	}
+
+	if pool == nil {
+		t.Fatal("expected worker pool to be initialized")
+	}
+
+	if controller.Mode() != modeDryRun {
+		t.Fatalf("unexpected mode: %s", controller.Mode())
+	}
+
+	if imdsClient.instanceCalls != 0 {
+		t.Fatalf("expected override to skip IMDS lookup, got %d calls", imdsClient.instanceCalls)
+	}
+}
+
 func TestMainSuccessDoesNotExit(t *testing.T) { //nolint:paralleltest // mutates process-wide state
 	originalExit := exitProcess
 
@@ -603,12 +650,13 @@ func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
 			NetworkingBandwidthInGbps: 0,
 			MaxVnicAttachments:        0,
 		},
-		shapeErr: nil,
+		shapeErr:      nil,
+		instanceCalls: 0,
 	}
 
 	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
 
-	logIMDSMetadata(context.Background(), logger, client, ctrl)
+	logIMDSMetadata(context.Background(), logger, client, ctrl, "")
 
 	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
 	if len(entries) == 0 {
@@ -653,16 +701,68 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 			NetworkingBandwidthInGbps: 0,
 			MaxVnicAttachments:        0,
 		},
-		shapeErr: errShapeDown,
+		shapeErr:      errShapeDown,
+		instanceCalls: 0,
 	}
 
 	ctrl := &stubController{mode: modeNoop, runErr: nil, runCalled: false}
 
-	logIMDSMetadata(context.Background(), logger, client, ctrl)
+	logIMDSMetadata(context.Background(), logger, client, ctrl, "")
 
 	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
 	if len(warns) != 3 {
 		t.Fatalf("expected three warnings, got %d", len(warns))
+	}
+}
+
+func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	client := &stubIMDSClient{
+		region:      "us-chicago-1",
+		regionErr:   nil,
+		instanceID:  "",
+		instanceErr: nil,
+		shape: imds.ShapeConfig{
+			OCPUs:                     2,
+			MemoryInGBs:               32,
+			BaselineOcpuUtilization:   "",
+			BaselineOCPUs:             0,
+			ThreadsPerCore:            0,
+			NetworkingBandwidthInGbps: 0,
+			MaxVnicAttachments:        0,
+		},
+		shapeErr:      nil,
+		instanceCalls: 0,
+	}
+
+	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
+
+	logIMDSMetadata(context.Background(), logger, client, ctrl, "  ocid1.instance.oc1..override  ")
+
+	if client.instanceCalls != 0 {
+		t.Fatalf(
+			"expected override to skip IMDS instance lookup, got %d calls",
+			client.instanceCalls,
+		)
+	}
+
+	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
+	if len(entries) == 0 {
+		t.Fatalf("expected debug log entry, got %+v", observed.All())
+	}
+
+	entry := entries[0]
+	if fieldString(entry.Context, "instanceID") != "ocid1.instance.oc1..override" {
+		t.Fatalf("expected override instance id, got %+v", entry.Context)
+	}
+
+	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
+	if len(warns) != 0 {
+		t.Fatalf("expected no warnings, got %d", len(warns))
 	}
 }
 
@@ -838,12 +938,13 @@ func (s *stubMetricsAdapter) QueryP95CPU(context.Context, string) (float64, erro
 }
 
 type stubIMDSClient struct {
-	region      string
-	regionErr   error
-	instanceID  string
-	instanceErr error
-	shape       imds.ShapeConfig
-	shapeErr    error
+	region        string
+	regionErr     error
+	instanceID    string
+	instanceErr   error
+	shape         imds.ShapeConfig
+	shapeErr      error
+	instanceCalls int
 }
 
 func (s *stubIMDSClient) Region(context.Context) (string, error) {
@@ -851,6 +952,8 @@ func (s *stubIMDSClient) Region(context.Context) (string, error) {
 }
 
 func (s *stubIMDSClient) InstanceID(context.Context) (string, error) {
+	s.instanceCalls++
+
 	return s.instanceID, s.instanceErr
 }
 

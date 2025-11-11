@@ -132,7 +132,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		pool.Start(ctx)
 	}
 
-	logIMDSMetadata(ctx, logger, imdsClient, controller)
+	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID)
 
 	runErr := controller.Run(ctx)
 	if runErr != nil {
@@ -281,9 +281,14 @@ func buildAdaptiveController(
 	cfg runtimeConfig,
 	imdsClient imds.Client,
 ) (adapt.Controller, poolStarter, error) {
-	instanceID, err := imdsClient.InstanceID(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("lookup instance ocid: %w", err)
+	instanceID := strings.TrimSpace(cfg.OCI.InstanceID)
+	if instanceID == "" {
+		fetchedID, err := imdsClient.InstanceID(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("lookup instance ocid: %w", err)
+		}
+
+		instanceID = strings.TrimSpace(fetchedID)
 	}
 
 	compartmentID := strings.TrimSpace(cfg.OCI.CompartmentID)
@@ -374,15 +379,21 @@ func logIMDSMetadata(
 	logger *zap.Logger,
 	client imds.Client,
 	controller adapt.Controller,
+	overrideInstanceID string,
 ) {
 	region, regionErr := client.Region(ctx)
 	if regionErr != nil {
 		logger.Warn("failed to query instance region", zap.Error(regionErr))
 	}
 
-	instanceID, instanceErr := client.InstanceID(ctx)
-	if instanceErr != nil {
-		logger.Warn("failed to query instance OCID", zap.Error(instanceErr))
+	instanceID := strings.TrimSpace(overrideInstanceID)
+
+	var instanceErr error
+	if instanceID == "" {
+		instanceID, instanceErr = client.InstanceID(ctx)
+		if instanceErr != nil {
+			logger.Warn("failed to query instance OCID", zap.Error(instanceErr))
+		}
 	}
 
 	shapeCfg, shapeErr := client.ShapeConfig(ctx)

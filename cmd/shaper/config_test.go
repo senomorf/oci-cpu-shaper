@@ -9,6 +9,8 @@ import (
 	"oci-cpu-shaper/pkg/adapt"
 )
 
+const testCompartmentOverride = "ocid1.compartment.oc1..override"
+
 func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	t.Parallel()
 
@@ -60,6 +62,11 @@ func TestLoadConfigAppliesFileOverrides(t *testing.T) {
 	if cfg.OCI.CompartmentID != expectedCompartment {
 		t.Fatalf("expected compartment id %q, got %q", expectedCompartment, cfg.OCI.CompartmentID)
 	}
+
+	expectedInstance := "ocid1.instance.oc1..config"
+	if cfg.OCI.InstanceID != expectedInstance {
+		t.Fatalf("expected instance id %q, got %q", expectedInstance, cfg.OCI.InstanceID)
+	}
 }
 
 func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
@@ -71,7 +78,8 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	t.Setenv(envFastInterval, "250ms")
 	t.Setenv(envPoolWorkers, "4")
 	t.Setenv(envHTTPBind, " :9300 ")
-	t.Setenv(envCompartmentID, " ocid1.compartment.oc1..override ")
+	t.Setenv(envCompartmentID, " "+testCompartmentOverride+" ")
+	t.Setenv(envInstanceID, " ocid1.instance.oc1..override ")
 
 	cfg, err := loadConfig("")
 	if err != nil {
@@ -105,8 +113,12 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 		t.Fatalf("expected env override for http bind, got %q", cfg.HTTP.Bind)
 	}
 
-	if cfg.OCI.CompartmentID != "ocid1.compartment.oc1..override" {
+	if cfg.OCI.CompartmentID != testCompartmentOverride {
 		t.Fatalf("expected env override for compartment ID, got %q", cfg.OCI.CompartmentID)
+	}
+
+	if cfg.OCI.InstanceID != "ocid1.instance.oc1..override" {
+		t.Fatalf("expected env override for instance ID, got %q", cfg.OCI.InstanceID)
 	}
 }
 

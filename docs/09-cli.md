@@ -42,11 +42,13 @@ http:
   bind: ":9108"
 oci:
   compartmentId: "ocid1.compartment.oc1..example"
+  instanceId: "ocid1.instance.oc1..example"
 ```
 
 - `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy.
 - `estimator.interval` controls the fast `/proc/stat` sampler cadence (§5.2) while the worker `pool` exposes quantum sizing that stays within the 1–5 ms duty-cycle budget.
 - `http.bind` retains the Prometheus listener address, and `oci.compartmentId` supplies the tenancy scope required by the Monitoring client.
+- `http.bind` retains the Prometheus listener address, and `oci.compartmentId` supplies the tenancy scope required by the Monitoring client. `oci.instanceId` is optional and lets operators bypass IMDS lookups when metadata access is blocked (for example, CI smoke tests or staging environments without instance principals).
 
 Configuration parsing layers file contents with environment overrides so operators can tune production deployments without editing manifests directly.
 
@@ -65,6 +67,7 @@ The CLI honours the following environment variables, matching the naming in §5.
 | `SHAPER_WORKER_COUNT` | Number of duty-cycle workers (`>=1`). | `runtime.NumCPU()` |
 | `HTTP_ADDR` | Prometheus listener bind address. | `:9108` |
 | `OCI_COMPARTMENT_ID` | Tenancy scope for OCI Monitoring API calls. | *(required for enforce/dry-run)* |
+| `OCI_INSTANCE_ID` | Overrides the instance OCID used for Monitoring queries and IMDS metadata logs, skipping live metadata calls. | *(empty)* |
 
 Unset or malformed overrides fall back to the defaults shown above.
 

@@ -26,6 +26,7 @@ const (
 	envPoolWorkers      = "SHAPER_WORKER_COUNT"
 	envHTTPBind         = "HTTP_ADDR"
 	envCompartmentID    = "OCI_COMPARTMENT_ID"
+	envInstanceID       = "OCI_INSTANCE_ID"
 	envFallbackTarget   = "SHAPER_FALLBACK_TARGET"
 	envRelaxedThreshold = "SHAPER_RELAXED_THRESHOLD"
 	envGoalLow          = "SHAPER_GOAL_LOW"
@@ -69,6 +70,7 @@ type httpConfig struct {
 
 type ociConfig struct {
 	CompartmentID string
+	InstanceID    string
 }
 
 type fileConfig struct {
@@ -108,6 +110,7 @@ type httpFileConfig struct {
 
 type ociFileConfig struct {
 	CompartmentID *string `yaml:"compartmentId"`
+	InstanceID    *string `yaml:"instanceId"`
 }
 
 func defaultRuntimeConfig() runtimeConfig {
@@ -205,6 +208,7 @@ func mergeHTTPConfig(dst *httpConfig, src httpFileConfig) {
 
 func mergeOCIConfig(dst *ociConfig, src ociFileConfig) {
 	assignString(&dst.CompartmentID, src.CompartmentID)
+	assignString(&dst.InstanceID, src.InstanceID)
 }
 
 func applyEnvOverrides(cfg *runtimeConfig) {
@@ -223,6 +227,7 @@ func applyEnvOverrides(cfg *runtimeConfig) {
 	cfg.Pool.Workers = envInt(envPoolWorkers, cfg.Pool.Workers)
 	cfg.HTTP.Bind = envString(envHTTPBind, cfg.HTTP.Bind)
 	cfg.OCI.CompartmentID = envString(envCompartmentID, cfg.OCI.CompartmentID)
+	cfg.OCI.InstanceID = envString(envInstanceID, cfg.OCI.InstanceID)
 
 	defaults := adapt.DefaultConfig()
 
