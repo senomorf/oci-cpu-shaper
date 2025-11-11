@@ -16,6 +16,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Automated release pipeline publishing multi-architecture images with Syft-generated SPDX SBOM artifacts (§14).
 - Unit coverage for IMDS dummy metadata, controller mode wiring, and CLI bootstrap flows via dependency-injected smoke tests (§§5, 9, 11).
 - Race-enabled `make coverage` target and CI enforcement requiring at least 85% statement coverage before merging (§14).
+- Go vulnerability scanning via `make govulncheck` and a dedicated CI job that restores module/build caches, failing pull requests when published advisories affect the dependency graph (§14).
 - CPU weight responsiveness integration suite with CI coverage on `ubuntu-latest` (cgroup v2) that exercises the container build alongside a competing workload and publishes verbose logs (§§6, 11).
 - Documentation refresh covering OCI IAM policy setup (§1), Always Free reclaim guardrails (§3), cgroup v2 tuning guidance (§4), and alarm workflows (§7), aligning `docs/` with the implementation plan’s required artifacts (§12).
 
@@ -29,6 +30,7 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - CLI runtime configuration now recognises `oci.offline`/`OCI_OFFLINE`, substituting a static metrics client and fallback instance ID so dry-run and enforce bootstrap without IMDS or Monitoring access. Container docs in §§8 and 9 cover the new smoke-test defaults.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
+- Raised the module `go` directive to 1.24.9 so CI and local workflows pick up the patched toolchain versions required by `govulncheck` (§14).
 - CI and release automation now leverage GitHub Actions caching to speed linting, testing, and multi-architecture builds, including restoring the runner `~/.cache/go-build` directory alongside module downloads (§14).
 - Container smoke testing now runs the packaged binary with `--log-level debug --shutdown-after=4s`, verifies the offline metadata log and graceful shutdown message, and uses a tighter offline configuration so CI fails quickly when wiring regresses (§§8, 9, 11).
 - Release SBOM generation is pinned to the latest Anchore Syft GitHub Action for up-to-date SPDX output (§14).

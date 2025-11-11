@@ -1,6 +1,6 @@
 module oci-cpu-shaper
 
-go 1.24.3
+go 1.24.9
 
 require (
 	github.com/oracle/oci-go-sdk/v65 v65.104.1

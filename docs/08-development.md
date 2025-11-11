@@ -22,6 +22,7 @@ The repository includes a `Makefile` that wraps the most common development task
 | `make test` | Execute `go test -race ./...` across every package. |
 | `make check` | Run linting and race-enabled tests in one step. |
 | `make coverage` | Generate a race-enabled coverage profile for production packages, save `coverage.out`/`coverage.txt`, and print the total percentage (CI enforces ≥85%). |
+| `make govulncheck` | Scan the module and all packages with `golang.org/x/vuln/cmd/govulncheck@v1.1.4`, failing on known Go vulnerabilities before changes ship (§14). |
 | `make build` | Compile all packages to validate build readiness. |
 
 ## Local caches
@@ -43,7 +44,8 @@ Running the `test` target enables the Go race detector by default, helping detec
 2. Run `make fmt` to normalize formatting with `gofmt` and `gofumpt`.
 3. Execute `make check` to run linting and race-enabled tests together (or `make lint` / `make test` individually); because linting applies auto-fixes, review `git status` afterward and stage the generated edits.
 4. Re-run `go test ./... -race` and `make lint` (or `make check`) until they pass—features and fixes must never ship while any test or lint job is failing (§11).
-5. Optionally execute `make build` to confirm the binary compiles successfully.
+5. Run `make govulncheck` to confirm the dependency graph and local packages are free of published vulnerabilities before opening a pull request (§14).
+6. Optionally execute `make build` to confirm the binary compiles successfully.
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.
 
