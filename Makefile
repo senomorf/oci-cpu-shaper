@@ -19,15 +19,15 @@ ifeq ($(GO_BIN_PATH),)
 GO_BIN_PATH := $(shell $(GO) env GOPATH)/bin
 endif
 
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+GOVULNCHECK_CACHE_DIR := $(ROOT_DIR)/.cache/govulncheck
+GOCACHE_DIR := $(ROOT_DIR)/.cache/go
+GOLANGCI_LINT_CACHE_DIR := $(ROOT_DIR)/.cache/golangci
+
 GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
-GOVULNCHECK_CACHE_DIR := $(ROOT_DIR)/.cache/govulncheck
-
-ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-GOCACHE_DIR := $(ROOT_DIR)/.cache/go
-GOLANGCI_LINT_CACHE_DIR := $(ROOT_DIR)/.cache/golangci
 
 .PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck
 
