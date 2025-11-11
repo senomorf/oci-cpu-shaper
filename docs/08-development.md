@@ -154,3 +154,13 @@ Keep `AGENTS.md` content short and directive so nested scopes are cheap to load.
   ```
 
 Adapt the bullet points to the smallest set of actionable, testable rules; long narrative guidance should live in the numbered docs and be linked from the AGENTS files instead of copied verbatim.
+
+## §8.7 Issue Triage Workflow
+
+Follow this checklist whenever new GitHub issues arrive so regressions and feature requests land in the correct queue (§§8, 15):
+
+1. **Acknowledge within one business day.** Add a short confirmation comment that the report is being reviewed and apply the `triage` label so automation can track open workload.
+2. **Classify the report.** Use the existing labels to indicate the area (for example, `controller`, `docs`, `integration-tests`) and severity. When the issue surfaces a defect that breaks supported paths, raise the priority to `P0`/`P1` and flag the on-call engineer.
+3. **Reproduce or gather logs.** Ask for missing details (command output, OCI tenancy, shape) and attempt to recreate the behaviour locally using `make check`, `make coverage`, or the integration harnesses described in §§11–11.2.
+4. **Decide the next action.** Convert confirmed bugs into milestones or hotfix branches, queue feature requests into the ROADMAP backlog, or close issues that fall outside the documented scope with a clear explanation.
+5. **Record follow-ups.** Link related pull requests, document manual verification steps in the issue thread, and update `docs/CHANGELOG.md` when the fix alters coverage, automation, or operator workflows (§12).
