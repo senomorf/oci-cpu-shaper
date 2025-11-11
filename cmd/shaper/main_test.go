@@ -371,14 +371,13 @@ func TestDefaultControllerFactoryReturnsNoopForMode(t *testing.T) {
 func TestDefaultControllerFactoryBuildsAdaptiveController(t *testing.T) {
 	t.Parallel()
 
-	originalFactory := newMetricsClient
-
-	t.Cleanup(func() { newMetricsClient = originalFactory })
-
 	fakeMetrics := newStubMetricsClient()
-	newMetricsClient = func(string) (oci.MetricsClient, error) {
-		return fakeMetrics, nil
-	}
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string) (oci.MetricsClient, error) {
+			return fakeMetrics, nil
+		},
+	)
 
 	cfg := defaultRuntimeConfig()
 	cfg.OCI.CompartmentID = "ocid1.compartment.oc1..controller"
@@ -389,7 +388,7 @@ func TestDefaultControllerFactoryBuildsAdaptiveController(t *testing.T) {
 	imdsClient.instanceID = "ocid1.instance.oc1..controller"
 
 	controller, pool, err := defaultControllerFactory(
-		context.Background(),
+		ctx,
 		modeEnforce,
 		cfg,
 		imdsClient,
@@ -430,13 +429,12 @@ func TestDefaultControllerFactoryErrorsOnMissingCompartmentID(t *testing.T) {
 func TestDefaultControllerFactoryPropagatesMetricsFailure(t *testing.T) {
 	t.Parallel()
 
-	originalFactory := newMetricsClient
-
-	t.Cleanup(func() { newMetricsClient = originalFactory })
-
-	newMetricsClient = func(string) (oci.MetricsClient, error) {
-		return nil, errStubControllerRun
-	}
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string) (oci.MetricsClient, error) {
+			return nil, errStubControllerRun
+		},
+	)
 
 	cfg := defaultRuntimeConfig()
 	cfg.OCI.CompartmentID = "ocid1.compartment.oc1..metrics"
@@ -445,7 +443,7 @@ func TestDefaultControllerFactoryPropagatesMetricsFailure(t *testing.T) {
 	imdsClient.instanceID = "ocid1.instance.oc1..metrics"
 
 	_, _, err := defaultControllerFactory(
-		context.Background(),
+		ctx,
 		modeDryRun,
 		cfg,
 		imdsClient,
