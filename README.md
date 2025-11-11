@@ -21,6 +21,7 @@ Contributions are welcome! Please:
    - `make fmt` to format code with `go fmt`.
    - `make lint` to run `golangci-lint`.
    - `make test` to execute the suite with the Go race detector enabled.
+   - `make integration` to verify Docker connectivity, enforce cgroup v2, and run the CPU weight responsiveness tests with logs mirrored to `artifacts/integration.log`.
    - `make build` to ensure binaries compile successfully.
 4. Include tests and documentation updates when adding new functionality.
 5. Use conventional commit messages where possible to ease changelog generation.
