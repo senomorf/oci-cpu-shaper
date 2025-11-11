@@ -16,6 +16,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Unit coverage for IMDS dummy metadata, controller mode wiring, and CLI bootstrap flows via dependency-injected smoke tests (§§5, 9, 11).
 - Race-enabled `make coverage` target and CI enforcement requiring at least 85% statement coverage before merging (§14).
 - CPU weight responsiveness integration suite with CI coverage on `ubuntu-latest` (cgroup v2) that exercises the container build alongside a competing workload and publishes verbose logs (§§6, 11).
+- Documentation refresh covering OCI IAM policy setup (§1), Always Free reclaim guardrails (§3), cgroup v2 tuning guidance (§4), and alarm workflows (§7), aligning `docs/` with the implementation plan’s required artifacts (§12).
 
 ### Changed
 _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 
@@ -29,5 +30,6 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - Local lint tooling is standardised on `golangci-lint` v2.6.1 with pinned installation in CI and the developer Makefile helper, keeping contributor environments aligned (§14).
 - `.tool-versions` now pins `golangci-lint` v2.6.1 and `gofumpt` v0.9.2 so `mise`/`asdf` environments surface the same linting behaviour developers see in CI (§14).
 - `golangci-lint` now runs with depguard allow-listing for module imports and `issues.fix: true`, letting formatters auto-apply fixes while docs instruct contributors to stage the generated edits (§14).
+- Overview and Monitoring documentation now link to the IAM, reclaim, cgroup, and alarm guides so operators can navigate the consolidated Always Free playbook (§§0, 5).
 - Updated third-party Go modules (flock, gobreaker, testify, golang.org/x/{crypto,net,sys}) to their latest releases so the controller wiring, samplers, and tests stay aligned with upstream fixes (§§11, 14).
 - Reconfirmed all Go module requirements and GitHub Actions pins are on the latest stable releases, updating workflow actions to their freshest tags to keep CI and release automation current (§§11, 14).

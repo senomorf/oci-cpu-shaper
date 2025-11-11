@@ -1,6 +1,6 @@
 # §5 Monitoring & MQL
 
-Monitoring data informs the shaper’s adaptive policy and must be retrievable from the tenant without manual credential handling. The controller issues Monitoring Query Language (MQL) requests through instance principals so the runtime binary can operate without embedding user API keys.[^oci-monitoring-auth]
+Monitoring data informs the shaper’s adaptive policy and must be retrievable from the tenant without manual credential handling. The controller issues Monitoring Query Language (MQL) requests through instance principals so the runtime binary can operate without embedding user API keys.[^oci-monitoring-auth] Alarm wiring that mirrors these queries is documented in [`07-alarms.md`](./07-alarms.md).
 
 ## 5.1 Instance principal metrics access
 
