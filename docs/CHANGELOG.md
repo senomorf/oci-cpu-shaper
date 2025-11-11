@@ -3,7 +3,8 @@
 ## Unreleased
 
 ### Added
-_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+- Adaptive controller wiring from `cmd/shaper` to the OCI Monitoring client, estimator sampler, and worker pool, plus layered YAML + environment configuration for controller targets, cadences, worker counts, and HTTP binding (§§3.1, 5.2). Tests cover configuration decoding, environment overrides, and controller factory success/error paths to preserve the ≥85% coverage floor (§11).
 - Instance-principal Monitoring client (`pkg/oci`) exposing `QueryP95CPU` with pagination, missing-data fallbacks, and HTTP-backed mocks that keep coverage above the ≥85% floor. Documented in §5 alongside troubleshooting guidance for tenancy policy and metric gaps.
 - HTTP-backed IMDSv2 client with retried metadata lookups, shape-config decoding, and an overridable endpoint (`OCI_CPU_SHAPER_IMDS_ENDPOINT`), documented in §2 and backed by `httptest` unit coverage (§§2, 5, 11).
 - Repository-wide AGENTS policy check with `make agents` and CI coverage to enforce scoped instructions (§8.4).
@@ -18,6 +19,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 
 ### Changed
 _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 
+- CLI `--mode` handling now starts the adaptive controller in `dry-run`/`enforce`, keeps `noop` as a diagnostics bypass, and logs configuration failures surfaced by the new YAML/environment loader. Updated docs in §§5 and 9 describe the operating modes and tunable configuration.
 - Raised the CI statement coverage floor to 85% and filtered `make coverage` to exclude developer tooling packages (for example, `cmd/agentscheck`), bringing the latest production-only run to 86.6% while keeping the threshold focused on shipped code paths (§11).
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.

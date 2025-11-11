@@ -5,43 +5,73 @@ The `shaper` binary delivers a thin orchestration layer that connects configurat
 ## 9.1 Invocation
 
 ```bash
-shaper --config /etc/oci-cpu-shaper/config.yaml --log-level info --mode dry-run
+shaper --config /etc/oci-cpu-shaper/config.yaml --log-level info --mode enforce
 ```
 
-The CLI exposes three foundational flags:
+Three foundational flags align with §§3.1 and 5.2 of the implementation plan:
 
 | Flag | Description | Default |
 | ---- | ----------- | ------- |
 | `--config` | Path to the primary YAML configuration file. Relative paths resolve from the current working directory. | `/etc/oci-cpu-shaper/config.yaml` |
 | `--log-level` | Structured logging level understood by the Zap logger (`debug`, `info`, `warn`, `error`, `dpanic`, `panic`, `fatal`). | `info` |
-| `--mode` | Controller operating mode. Placeholder values include `dry-run`, `enforce`, and `noop`; future releases will expand this list as policy features land. | `dry-run` |
+| `--mode` | Controller operating mode. `dry-run` and `enforce` now spin up the adaptive controller with real OCI metrics, estimator sampling, and worker pools; `noop` keeps the historical bypass for smoke tests. | `dry-run` |
 
-Flags are intentionally minimal and map directly to configuration keys so that automation frameworks can template them alongside file-based configuration.
+Flags remain intentionally minimal so orchestration tools can template them alongside file-based configuration and environment overrides.
 
 ## 9.2 Configuration Layout
 
-Bootstrap deployments can rely on a short YAML manifest:
+Bootstrap deployments rely on a compact YAML manifest that mirrors §§3.1 and 5.2 thresholds:
 
 ```yaml
-logging:
-  level: info
 controller:
-  mode: dry-run
-sources:
-  imds:
-    endpoint: "https://169.254.169.254/opc/v2"
+  targetStart: 0.25
+  targetMin: 0.22
+  targetMax: 0.40
+  stepUp: 0.02
+  stepDown: 0.01
+  fallbackTarget: 0.25
+  interval: 1h
+  relaxedInterval: 6h
+  relaxedThreshold: 0.28
+estimator:
+  interval: 1s
+pool:
+  workers: 4
+  quantum: 1ms
+http:
+  bind: ":9108"
+oci:
+  compartmentId: "ocid1.compartment.oc1..example"
 ```
 
-- `logging.level` sets the default log level; the `--log-level` flag overrides it at runtime.
-- `controller.mode` selects the shaping strategy; the initial controller is a no-op placeholder that simply reports the requested mode.
-- `sources.imds.endpoint` identifies the Oracle Cloud IMDSv2 endpoint and header requirements described in the implementation plan (§5.2).
+- `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy.
+- `estimator.interval` controls the fast `/proc/stat` sampler cadence (§5.2) while the worker `pool` exposes quantum sizing that stays within the 1–5 ms duty-cycle budget.
+- `http.bind` retains the Prometheus listener address, and `oci.compartmentId` supplies the tenancy scope required by the Monitoring client.
 
-As additional controllers and data sources ship, this manifest will expand with scheduler parameters, retry policies, and telemetry sinks. Configuration parsing will remain layered so that CLI flags, environment variables, and files compose without surprises.
+Configuration parsing layers file contents with environment overrides so operators can tune production deployments without editing manifests directly.
 
-## 9.3 Diagnostics
+## 9.3 Environment Overrides
+
+The CLI honours the following environment variables, matching the naming in §5.2:
+
+| Variable | Description | Default |
+| -------- | ----------- | ------- |
+| `SHAPER_TARGET_START` | Initial duty-cycle target when OCI data is unavailable. | `0.25` |
+| `SHAPER_TARGET_MIN` / `SHAPER_TARGET_MAX` | Bounds applied to adaptive adjustments. | `0.22` / `0.40` |
+| `SHAPER_STEP_UP` / `SHAPER_STEP_DOWN` | Target deltas when OCI P95 is below or above the goal band. | `+0.02` / `-0.01` |
+| `SHAPER_FALLBACK_TARGET` | Fixed target while OCI metrics are unavailable. | `0.25` |
+| `SHAPER_SLOW_INTERVAL` / `SHAPER_SLOW_INTERVAL_RELAXED` | Baseline and relaxed controller cadences. | `1h` / `6h` |
+| `SHAPER_FAST_INTERVAL` | Host CPU sampling cadence for the estimator. | `1s` |
+| `SHAPER_WORKER_COUNT` | Number of duty-cycle workers (`>=1`). | `runtime.NumCPU()` |
+| `HTTP_ADDR` | Prometheus listener bind address. | `:9108` |
+| `OCI_COMPARTMENT_ID` | Tenancy scope for OCI Monitoring API calls. | *(required for enforce/dry-run)* |
+
+Unset or malformed overrides fall back to the defaults shown above.
+
+## 9.4 Diagnostics
 
 At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo` and echoes the selected mode. This gives operators immediate confirmation of the version, Git commit, and configuration path used for a run before any controllers mutate system state.
 
 Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, and unsupported log levels report a structured error before the logger is constructed. This keeps early runs predictable while new policy engines are still being prototyped.
 
-Smoke tests introduced in §11 exercise the dependency-injected entrypoint to ensure build metadata, dummy IMDS plumbing, and no-op controllers stay wired correctly as additional subsystems land.
+Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios.

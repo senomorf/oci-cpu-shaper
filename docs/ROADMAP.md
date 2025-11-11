@@ -1,5 +1,9 @@
 # Roadmap
 
+## 5.2 Adaptive controller wiring
+- Wire the default CLI path to the adaptive controller using real OCI Monitoring clients, estimator sampling, and worker pools so `dry-run` and `enforce` execute the same slow-loop logic described in §§3.1 and 5.2 while `noop` remains a diagnostics bypass.
+- Document the YAML configuration keys and environment overrides that surface controller targets, cadences, worker counts, and the HTTP bind address so operators can tune deployments without drifting from the baseline thresholds in §5.2.
+
 ## 14.1 CI automation
 - Run `golangci-lint` with the repository defaults on every pull request to catch regressions early (§14).
 - Execute `go test ./... -race` for all targets so concurrency issues surface during review (§14).
