@@ -30,7 +30,7 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - CLI runtime configuration now recognises `oci.offline`/`OCI_OFFLINE`, substituting a static metrics client and fallback instance ID so dry-run and enforce bootstrap without IMDS or Monitoring access. Container docs in §§8 and 9 cover the new smoke-test defaults.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
-- Raised the module `go` directive to 1.24.9 so CI and local workflows pick up the patched toolchain versions required by `govulncheck` (§14).
+- Raised the module `go` directive, `.tool-versions`, and container build ARG to Go 1.24.10 so CI, local workflows, and release images all consume the latest patched toolchain required by `govulncheck` (§14).
 - CI and release automation now leverage GitHub Actions caching to speed linting, testing, and multi-architecture builds, including restoring the runner `~/.cache/go-build` directory alongside module downloads (§14).
 - Container smoke testing now runs the packaged binary with `--log-level debug --shutdown-after=4s`, verifies the offline metadata log and graceful shutdown message, and uses a tighter offline configuration so CI fails quickly when wiring regresses (§§8, 9, 11).
 - Release SBOM generation is pinned to the latest Anchore Syft GitHub Action for up-to-date SPDX output (§14).
