@@ -26,6 +26,7 @@ const (
 	envPoolWorkers      = "SHAPER_WORKER_COUNT"
 	envHTTPBind         = "HTTP_ADDR"
 	envCompartmentID    = "OCI_COMPARTMENT_ID"
+	envOCIRegion        = "OCI_REGION"
 	envInstanceID       = "OCI_INSTANCE_ID"
 	envOCIOffline       = "OCI_OFFLINE"
 	envFallbackTarget   = "SHAPER_FALLBACK_TARGET"
@@ -71,6 +72,7 @@ type httpConfig struct {
 
 type ociConfig struct {
 	CompartmentID string
+	Region        string
 	InstanceID    string
 	Offline       bool
 }
@@ -112,6 +114,7 @@ type httpFileConfig struct {
 
 type ociFileConfig struct {
 	CompartmentID *string `yaml:"compartmentId"`
+	Region        *string `yaml:"region"`
 	InstanceID    *string `yaml:"instanceId"`
 	Offline       *bool   `yaml:"offline"`
 }
@@ -211,6 +214,7 @@ func mergeHTTPConfig(dst *httpConfig, src httpFileConfig) {
 
 func mergeOCIConfig(dst *ociConfig, src ociFileConfig) {
 	assignString(&dst.CompartmentID, src.CompartmentID)
+	assignString(&dst.Region, src.Region)
 	assignString(&dst.InstanceID, src.InstanceID)
 	assignBool(&dst.Offline, src.Offline)
 }
@@ -231,6 +235,7 @@ func applyEnvOverrides(cfg *runtimeConfig) {
 	cfg.Pool.Workers = envInt(envPoolWorkers, cfg.Pool.Workers)
 	cfg.HTTP.Bind = envString(envHTTPBind, cfg.HTTP.Bind)
 	cfg.OCI.CompartmentID = envString(envCompartmentID, cfg.OCI.CompartmentID)
+	cfg.OCI.Region = envString(envOCIRegion, cfg.OCI.Region)
 	cfg.OCI.InstanceID = envString(envInstanceID, cfg.OCI.InstanceID)
 	cfg.OCI.Offline = envBool(envOCIOffline, cfg.OCI.Offline)
 

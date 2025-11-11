@@ -58,7 +58,7 @@ type Client struct {
 
 // NewInstancePrincipalClient constructs a Client backed by the OCI Go SDK using instance principal
 // authentication. The compartment OCID identifies the tenancy scope for Monitoring queries.
-func NewInstancePrincipalClient(compartmentID string) (*Client, error) {
+func NewInstancePrincipalClient(compartmentID, region string) (*Client, error) {
 	if compartmentID == "" {
 		return nil, errMissingCompartmentID
 	}
@@ -83,6 +83,11 @@ func NewInstancePrincipalClient(compartmentID string) (*Client, error) {
 	monitoringClient, err := monitoringClientFn(provider)
 	if err != nil {
 		return nil, fmt.Errorf("create monitoring client: %w", err)
+	}
+
+	trimmedRegion := strings.TrimSpace(region)
+	if trimmedRegion != "" {
+		monitoringClient.SetRegion(trimmedRegion)
 	}
 
 	return newClient(&sdkMonitoringClient{client: &monitoringClient}, compartmentID, time.Now)

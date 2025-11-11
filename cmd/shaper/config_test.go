@@ -9,7 +9,10 @@ import (
 	"oci-cpu-shaper/pkg/adapt"
 )
 
-const testCompartmentOverride = "ocid1.compartment.oc1..override"
+const (
+	testCompartmentOverride = "ocid1.compartment.oc1..override"
+	testRegionOverride      = "us-sanjose-1"
+)
 
 func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	t.Parallel()
@@ -33,6 +36,10 @@ func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 
 	if cfg.OCI.Offline {
 		t.Fatal("expected offline mode to default to false")
+	}
+
+	if cfg.OCI.Region != "" {
+		t.Fatalf("expected region to default empty, got %q", cfg.OCI.Region)
 	}
 }
 
@@ -71,6 +78,11 @@ func TestLoadConfigAppliesFileOverrides(t *testing.T) {
 	if cfg.OCI.InstanceID != expectedInstance {
 		t.Fatalf("expected instance id %q, got %q", expectedInstance, cfg.OCI.InstanceID)
 	}
+
+	expectedRegion := stubRegion
+	if cfg.OCI.Region != expectedRegion {
+		t.Fatalf("expected region %q, got %q", expectedRegion, cfg.OCI.Region)
+	}
 }
 
 func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
@@ -84,6 +96,7 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	t.Setenv(envHTTPBind, " :9300 ")
 	t.Setenv(envCompartmentID, " "+testCompartmentOverride+" ")
 	t.Setenv(envInstanceID, " ocid1.instance.oc1..override ")
+	t.Setenv(envOCIRegion, " "+testRegionOverride+" ")
 	t.Setenv(envOCIOffline, "true")
 
 	cfg, err := loadConfig("")
@@ -100,6 +113,7 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	assertIntEqual(t, "workers", cfg.Pool.Workers, 4)
 	assertStringEqual(t, "httpBind", cfg.HTTP.Bind, ":9300")
 	assertStringEqual(t, "compartmentID", cfg.OCI.CompartmentID, testCompartmentOverride)
+	assertStringEqual(t, "region", cfg.OCI.Region, testRegionOverride)
 	assertStringEqual(t, "instanceID", cfg.OCI.InstanceID, "ocid1.instance.oc1..override")
 	assertBoolEqual(t, "offline", cfg.OCI.Offline, true)
 }
