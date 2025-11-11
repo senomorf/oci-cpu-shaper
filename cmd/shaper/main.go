@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"oci-cpu-shaper/internal/buildinfo"
@@ -112,37 +113,41 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		return writeError(stderr, err, exitCodeParseError)
 	}
 
-	cfg, err := deps.loadConfig(opts.configPath)
-	if err != nil {
-		return writeError(
-			stderr,
-			fmt.Errorf("failed to load configuration: %w", err),
-			exitCodeRuntimeError,
-		)
+	cfg, exitCode, configLoaded := loadRuntimeConfigOrExit(deps, opts.configPath, stderr)
+	if !configLoaded {
+		return exitCode
 	}
 
-	logger, err := deps.newLogger(opts.logLevel)
-	if err != nil {
-		return writeError(
-			stderr,
-			fmt.Errorf("failed to configure logger: %w", err),
-			exitCodeRuntimeError,
-		)
+	logger, exitCode, loggerReady := buildLoggerOrExit(deps, opts.logLevel, stderr)
+	if !loggerReady {
+		return exitCode
 	}
 
 	defer func() {
 		_ = logger.Sync()
 	}()
 
+	if opts.shutdownAfter > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, opts.shutdownAfter)
+		defer cancel()
+	}
+
 	info := deps.currentBuildInfo()
-	logger.Info(
-		"starting oci-cpu-shaper",
+	fields := []zap.Field{
 		zap.String("version", info.Version),
 		zap.String("commit", info.GitCommit),
 		zap.String("buildDate", info.BuildDate),
 		zap.String("configPath", opts.configPath),
 		zap.String("mode", opts.mode),
-	)
+	}
+
+	if opts.shutdownAfter > 0 {
+		fields = append(fields, zap.Duration("shutdownAfter", opts.shutdownAfter))
+	}
+
+	logger.Info("starting oci-cpu-shaper", fields...)
 
 	imdsClient := deps.newIMDS()
 
@@ -160,13 +165,32 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID, cfg.OCI.Offline)
 
 	runErr := controller.Run(ctx)
-	if runErr != nil {
+
+	return handleControllerRunResult(logger, runErr)
+}
+
+func handleControllerRunResult(logger *zap.Logger, runErr error) int {
+	if runErr == nil {
+		return exitCodeSuccess
+	}
+
+	switch {
+	case errors.Is(runErr, context.Canceled):
+		logger.Info("controller stopped", zap.String("reason", context.Canceled.Error()))
+
+		return exitCodeSuccess
+	case errors.Is(runErr, context.DeadlineExceeded):
+		logger.Info(
+			"controller stopped",
+			zap.String("reason", context.DeadlineExceeded.Error()),
+		)
+
+		return exitCodeSuccess
+	default:
 		logger.Error("controller execution failed", zap.Error(runErr))
 
 		return exitCodeRuntimeError
 	}
-
-	return exitCodeSuccess
 }
 
 func writeError(dst io.Writer, err error, code int) int {
@@ -208,9 +232,10 @@ func newLogger(level string) (*zap.Logger, error) {
 }
 
 type options struct {
-	configPath string
-	logLevel   string
-	mode       string
+	configPath    string
+	logLevel      string
+	mode          string
+	shutdownAfter time.Duration
 }
 
 func parseArgs(args []string) (options, error) {
@@ -236,10 +261,29 @@ func parseArgs(args []string) (options, error) {
 		modeDryRun,
 		"Controller mode to use (dry-run, enforce, noop)",
 	)
+	flagSet.DurationVar(
+		&opts.shutdownAfter,
+		"shutdown-after",
+		0,
+		"Gracefully stop the controller after the provided duration (0 disables the timer)",
+	)
 
 	err := flagSet.Parse(args)
 	if err != nil {
 		return options{}, fmt.Errorf("parse CLI arguments: %w", err)
+	}
+
+	normErr := normalizeOptions(&opts)
+	if normErr != nil {
+		return options{}, normErr
+	}
+
+	return opts, nil
+}
+
+func normalizeOptions(opts *options) error {
+	if opts == nil {
+		return nil
 	}
 
 	opts.mode = strings.ToLower(strings.TrimSpace(opts.mode))
@@ -248,7 +292,7 @@ func parseArgs(args []string) (options, error) {
 	}
 
 	if !isValidMode(opts.mode) {
-		return options{}, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: %q (supported: %s, %s, %s)",
 			errUnsupportedMode,
 			opts.mode,
@@ -268,12 +312,57 @@ func parseArgs(args []string) (options, error) {
 		opts.configPath = defaultConfigPath
 	}
 
-	return opts, nil
+	if opts.shutdownAfter < 0 {
+		return fmt.Errorf("%w: %v", errInvalidShutdownAfter, opts.shutdownAfter)
+	}
+
+	return nil
+}
+
+func loadRuntimeConfigOrExit(
+	deps runDeps,
+	path string,
+	stderr io.Writer,
+) (runtimeConfig, int, bool) {
+	cfg, loadErr := deps.loadConfig(path)
+	if loadErr != nil {
+		exitCode := writeError(
+			stderr,
+			fmt.Errorf("failed to load configuration: %w", loadErr),
+			exitCodeRuntimeError,
+		)
+
+		var empty runtimeConfig
+
+		return empty, exitCode, false
+	}
+
+	return cfg, exitCodeSuccess, true
+}
+
+func buildLoggerOrExit(
+	deps runDeps,
+	level string,
+	stderr io.Writer,
+) (*zap.Logger, int, bool) {
+	logger, loggerErr := deps.newLogger(level)
+	if loggerErr != nil {
+		exitCode := writeError(
+			stderr,
+			fmt.Errorf("failed to configure logger: %w", loggerErr),
+			exitCodeRuntimeError,
+		)
+
+		return nil, exitCode, false
+	}
+
+	return logger, exitCodeSuccess, true
 }
 
 var (
-	errInvalidLogLevel = errors.New("invalid log level")
-	errUnsupportedMode = errors.New("unsupported mode provided")
+	errInvalidLogLevel      = errors.New("invalid log level")
+	errUnsupportedMode      = errors.New("unsupported mode provided")
+	errInvalidShutdownAfter = errors.New("invalid shutdown-after duration (must be >=0)")
 )
 
 //nolint:ireturn // factory intentionally hides controller implementation

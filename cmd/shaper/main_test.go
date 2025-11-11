@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -55,6 +56,10 @@ func TestParseArgsDefaults(t *testing.T) {
 	if opts.mode != modeDryRun {
 		t.Fatalf("expected default mode, got %q", opts.mode)
 	}
+
+	if opts.shutdownAfter != 0 {
+		t.Fatalf("expected shutdownAfter default to be 0, got %v", opts.shutdownAfter)
+	}
 }
 
 func TestParseArgsValidCustomizations(t *testing.T) {
@@ -67,6 +72,8 @@ func TestParseArgsValidCustomizations(t *testing.T) {
 		"debug",
 		"--mode",
 		"enforce",
+		"--shutdown-after",
+		"45s",
 	}
 
 	opts, err := parseArgs(args)
@@ -84,6 +91,23 @@ func TestParseArgsValidCustomizations(t *testing.T) {
 
 	if opts.mode != modeEnforce {
 		t.Fatalf("unexpected mode: %q", opts.mode)
+	}
+
+	if opts.shutdownAfter != 45*time.Second {
+		t.Fatalf("unexpected shutdownAfter: %v", opts.shutdownAfter)
+	}
+}
+
+func TestParseArgsRejectsNegativeShutdownAfter(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseArgs([]string{"--shutdown-after", "-5s"})
+	if err == nil {
+		t.Fatal("expected error for negative shutdown-after duration")
+	}
+
+	if !errors.Is(err, errInvalidShutdownAfter) {
+		t.Fatalf("expected errInvalidShutdownAfter, got %v", err)
 	}
 }
 
@@ -176,7 +200,7 @@ func TestRunSuccessfulPath(t *testing.T) {
 
 	pool := new(stubPoolStarter)
 
-	deps.loadConfig = loadConfigStub(stubCompartmentID)
+	deps.loadConfig = loadConfigStub()
 
 	deps.newController = func(
 		ctx context.Context,
@@ -215,6 +239,91 @@ func TestRunSuccessfulPath(t *testing.T) {
 	}
 
 	assertInfoLogEntry(t, observed.All(), "test-version", "test-commit", "2024-05-01")
+}
+
+func TestRunAppliesShutdownAfter(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return stubBuildInfo("test-version", "test-commit", "2024-05-01")
+	}
+	deps.newLogger = func(level string) (*zap.Logger, error) {
+		if level != defaultLogLevel {
+			t.Fatalf("expected default log level %q, got %q", defaultLogLevel, level)
+		}
+
+		return logger, nil
+	}
+	deps.loadConfig = loadConfigStub()
+
+	ctrl := new(stubController)
+
+	deps.newController = func(
+		ctx context.Context,
+		mode string,
+		cfg runtimeConfig,
+		imdsClient imds.Client,
+	) (adapt.Controller, poolStarter, error) {
+		_ = cfg
+		_ = imdsClient
+
+		controllerCtxDeadline, controllerCtxHasDeadline := ctx.Deadline()
+		if !controllerCtxHasDeadline {
+			t.Fatal("expected controller factory context to include deadline")
+		}
+
+		if time.Until(controllerCtxDeadline) <= 0 {
+			t.Fatal("expected controller deadline to be in the future when factory executed")
+		}
+
+		ctrl.mode = mode
+
+		return ctrl, nil, nil
+	}
+
+	exitCode := run(t.Context(), []string{"--shutdown-after", "200ms"}, deps, io.Discard)
+	if exitCode != exitCodeSuccess {
+		t.Fatalf("expected zero exit code, got %d", exitCode)
+	}
+
+	requireRunInvoked(t, ctrl)
+	requireDeadlineCaptured(t, ctrl)
+
+	entries := observed.FilterMessage("starting oci-cpu-shaper").All()
+	requireShutdownDuration(t, entries, 200*time.Millisecond)
+}
+
+func TestRunHandlesContextShutdown(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		runErr error
+		reason string
+	}{
+		{
+			name:   "deadline exceeded",
+			runErr: fmt.Errorf("adaptive controller run: %w", context.DeadlineExceeded),
+			reason: context.DeadlineExceeded.Error(),
+		},
+		{
+			name:   "context canceled",
+			runErr: fmt.Errorf("adaptive controller run: %w", context.Canceled),
+			reason: context.Canceled.Error(),
+		},
+	}
+
+	for _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			runShutdownScenario(t, scenario.runErr, scenario.reason)
+		})
+	}
 }
 
 func TestRunReturnsParseErrorExitCode(t *testing.T) {
@@ -278,7 +387,7 @@ func TestRunHandlesControllerError(t *testing.T) {
 		return logger, nil
 	}
 
-	deps.loadConfig = loadConfigStub(stubCompartmentID)
+	deps.loadConfig = loadConfigStub()
 
 	deps.newController = func(
 		ctx context.Context,
@@ -688,7 +797,8 @@ func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
 		shapeCalls:    0,
 	}
 
-	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
+	ctrl := new(stubController)
+	ctrl.mode = modeDryRun
 
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
@@ -741,7 +851,8 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 		shapeCalls:    0,
 	}
 
-	ctrl := &stubController{mode: modeNoop, runErr: nil, runCalled: false}
+	ctrl := new(stubController)
+	ctrl.mode = modeNoop
 
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
@@ -777,7 +888,8 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 		shapeCalls:    0,
 	}
 
-	ctrl := &stubController{mode: modeDryRun, runErr: nil, runCalled: false}
+	ctrl := new(stubController)
+	ctrl.mode = modeDryRun
 
 	logIMDSMetadata(
 		context.Background(),
@@ -914,15 +1026,109 @@ func assertInfoLogEntry(
 	}
 }
 
+func requireRunInvoked(t *testing.T, ctrl *stubController) {
+	t.Helper()
+
+	if ctrl == nil || !ctrl.runCalled {
+		t.Fatal("expected controller Run to be invoked")
+	}
+}
+
+func requireDeadlineCaptured(t *testing.T, ctrl *stubController) {
+	t.Helper()
+
+	if ctrl == nil {
+		t.Fatal("controller stub is nil")
+	}
+
+	if !ctrl.deadlineSet {
+		t.Fatal("expected controller Run to capture deadline")
+	}
+
+	if ctrl.deadline.IsZero() {
+		t.Fatal("expected controller Run deadline to be set")
+	}
+}
+
+func requireShutdownDuration(
+	t *testing.T,
+	entries []observer.LoggedEntry,
+	expected time.Duration,
+) {
+	t.Helper()
+
+	if len(entries) == 0 {
+		t.Fatalf("expected startup log entry, got %+v", entries)
+	}
+
+	duration, ok := fieldDuration(entries[0].Context, "shutdownAfter")
+	if !ok || duration != expected {
+		t.Fatalf("expected shutdownAfter duration %v, got %v (present=%v)", expected, duration, ok)
+	}
+}
+
+func runShutdownScenario(t *testing.T, runErr error, reason string) {
+	t.Helper()
+
+	core, observed := observer.New(zap.DebugLevel)
+	logger := zap.New(core)
+
+	ctrl := new(stubController)
+	ctrl.runErr = runErr
+
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return stubBuildInfo("test-version", "", "")
+	}
+	deps.newLogger = func(string) (*zap.Logger, error) {
+		return logger, nil
+	}
+	deps.loadConfig = loadConfigStub()
+	deps.newController = func(context.Context, string, runtimeConfig, imds.Client) (adapt.Controller, poolStarter, error) {
+		return ctrl, nil, nil
+	}
+
+	exitCode := run(t.Context(), []string{"--shutdown-after", "50ms"}, deps, io.Discard)
+	if exitCode != exitCodeSuccess {
+		t.Fatalf("expected zero exit code, got %d", exitCode)
+	}
+
+	requireRunInvoked(t, ctrl)
+
+	stoppedEntries := observed.FilterMessage("controller stopped").All()
+	if len(stoppedEntries) != 1 {
+		t.Fatalf("expected controller stopped log entry, got %+v", observed.All())
+	}
+
+	if got := fieldString(stoppedEntries[0].Context, "reason"); got != reason {
+		t.Fatalf("expected reason %q, got %q", reason, got)
+	}
+
+	if failureEntries := observed.FilterMessage("controller execution failed").All(); len(
+		failureEntries,
+	) != 0 {
+		t.Fatalf("expected no failure logs, got %+v", failureEntries)
+	}
+}
+
 type stubController struct {
-	mode      string
-	runErr    error
-	runCalled bool
+	mode        string
+	runErr      error
+	runCalled   bool
+	deadline    time.Time
+	deadlineSet bool
 }
 
 func (c *stubController) Run(ctx context.Context) error {
 	c.runCalled = true
-	_ = ctx
+
+	if deadline, ok := ctx.Deadline(); ok {
+		c.deadline = deadline
+		c.deadlineSet = true
+	} else {
+		c.deadline = time.Time{}
+		c.deadlineSet = false
+	}
 
 	return c.runErr
 }
@@ -985,6 +1191,22 @@ func fieldFloat(fields []zap.Field, key string) float64 {
 	return 0
 }
 
+func fieldDuration(fields []zap.Field, key string) (time.Duration, bool) {
+	for _, field := range fields {
+		if field.Key != key {
+			continue
+		}
+
+		if field.Type == zapcore.DurationType {
+			return time.Duration(field.Integer), true
+		}
+
+		return 0, true
+	}
+
+	return 0, false
+}
+
 func stubBuildInfo(version, commit, date string) buildinfo.Info {
 	return buildinfo.Info{
 		Version:   version,
@@ -993,10 +1215,10 @@ func stubBuildInfo(version, commit, date string) buildinfo.Info {
 	}
 }
 
-func loadConfigStub(compartmentID string) func(string) (runtimeConfig, error) {
+func loadConfigStub() func(string) (runtimeConfig, error) {
 	return func(string) (runtimeConfig, error) {
 		cfg := defaultRuntimeConfig()
-		cfg.OCI.CompartmentID = compartmentID
+		cfg.OCI.CompartmentID = stubCompartmentID
 
 		return cfg, nil
 	}

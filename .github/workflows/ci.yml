@@ -22,6 +22,14 @@ jobs:
           cache-dependency-path: |
             go.sum
 
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-
+
       - name: Verify AGENTS scopes
         run: make agents
 
@@ -39,6 +47,14 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
+
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9.0.0
@@ -60,6 +76,14 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
+
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-
 
       - name: Run coverage suite
         env:
@@ -108,7 +132,21 @@ jobs:
             BUILD_DATE=${{ steps.build-meta.outputs.build-date }}
 
       - name: Smoke test dry-run mode
-        run: docker run --rm oci-cpu-shaper:test --mode dry-run
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          docker run --rm oci-cpu-shaper:test \
+            --mode dry-run \
+            --log-level debug \
+            --shutdown-after=4s | tee smoke.log
+
+          grep -F '"controllerMode":"dry-run"' smoke.log
+          grep -F '"offline":true' smoke.log
+          grep -F '"message":"controller stopped"' smoke.log
+          grep -F '"reason":"context deadline exceeded"' smoke.log
+          rm smoke.log
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.20.9
@@ -143,6 +181,14 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
+
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-
 
       - name: Verify Docker cgroup version
         run: |
