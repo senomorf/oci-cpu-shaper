@@ -33,10 +33,12 @@ var (
 	errNilClient            = errors.New("oci: metrics client receiver is nil")
 	errMissingInstanceOCID  = errors.New("oci: instance OCID is required")
 
-	instancePrincipalProviderFn = auth.InstancePrincipalConfigurationProvider             //nolint:gochecknoglobals
-	newMonitoringClientFn       = monitoring.NewMonitoringClientWithConfigurationProvider //nolint:gochecknoglobals
-	instancePrincipalProviderMu sync.RWMutex                                              //nolint:gochecknoglobals
-	newMonitoringClientMu       sync.RWMutex                                              //nolint:gochecknoglobals
+	defaultInstancePrincipalProvider = auth.InstancePrincipalConfigurationProvider             //nolint:gochecknoglobals
+	defaultNewMonitoringClientFn     = monitoring.NewMonitoringClientWithConfigurationProvider //nolint:gochecknoglobals
+	instancePrincipalProviderFn      = defaultInstancePrincipalProvider                        //nolint:gochecknoglobals
+	newMonitoringClientFn            = defaultNewMonitoringClientFn                            //nolint:gochecknoglobals
+	instancePrincipalProviderMu      sync.RWMutex                                              //nolint:gochecknoglobals
+	newMonitoringClientMu            sync.RWMutex                                              //nolint:gochecknoglobals
 )
 
 type metricsClient interface {
