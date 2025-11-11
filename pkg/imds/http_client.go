@@ -15,6 +15,7 @@ const (
 	defaultHTTPClientTimeout = 2 * time.Second
 	defaultMaxAttempts       = 3
 	defaultBackoff           = 200 * time.Millisecond
+	metadataAuthorization    = "Bearer Oracle"
 )
 
 var (
@@ -117,9 +118,31 @@ func (c *HTTPClient) Region(ctx context.Context) (string, error) {
 	return body, nil
 }
 
+// CanonicalRegion returns the canonical region name for the running instance.
+func (c *HTTPClient) CanonicalRegion(ctx context.Context) (string, error) {
+	var info regionInfo
+
+	err := c.getJSON(ctx, "regionInfo", &info)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(info.CanonicalRegionName), nil
+}
+
 // InstanceID returns the OCID for the running instance.
 func (c *HTTPClient) InstanceID(ctx context.Context) (string, error) {
 	body, err := c.getText(ctx, "id")
+	if err != nil {
+		return "", err
+	}
+
+	return body, nil
+}
+
+// CompartmentID returns the compartment OCID for the running instance.
+func (c *HTTPClient) CompartmentID(ctx context.Context) (string, error) {
+	body, err := c.getText(ctx, "compartmentId")
 	if err != nil {
 		return "", err
 	}
@@ -207,7 +230,7 @@ func (c *HTTPClient) wait(ctx context.Context) error {
 }
 
 func (c *HTTPClient) tryFetch(ctx context.Context, resource string) ([]byte, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.resourceURL(resource), nil)
+	req, err := metadataRequest(ctx, http.MethodGet, c.resourceURL(resource))
 	if err != nil {
 		return nil, false, fmt.Errorf("build request for %s: %w", resource, err)
 	}
@@ -276,4 +299,19 @@ func isRetryable(status int) bool {
 	default:
 		return status >= 500 && status != http.StatusNotImplemented
 	}
+}
+
+func metadataRequest(ctx context.Context, method, url string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build metadata request: %w", err)
+	}
+
+	req.Header.Set("Authorization", metadataAuthorization)
+
+	return req, nil
+}
+
+type regionInfo struct {
+	CanonicalRegionName string `json:"canonicalRegionName"`
 }

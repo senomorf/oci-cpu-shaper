@@ -18,9 +18,13 @@ import (
 )
 
 const (
-	regionResourcePath      = "/opc/v2/instance/region"
-	instanceIDResourcePath  = "/opc/v2/instance/id"
-	shapeConfigResourcePath = "/opc/v2/instance/shape-config"
+	regionResourcePath          = "/opc/v2/instance/region"
+	instanceIDResourcePath      = "/opc/v2/instance/id"
+	shapeConfigResourcePath     = "/opc/v2/instance/shape-config"
+	canonicalRegionResourcePath = "/opc/v2/instance/regionInfo"
+	compartmentIDResourcePath   = "/opc/v2/instance/compartmentId"
+	metadataAuthHeaderValue     = "Bearer Oracle"
+	authorizationHeaderKey      = "Authorization"
 )
 
 var (
@@ -33,34 +37,23 @@ func TestHTTPClientHappyPath(t *testing.T) {
 	t.Parallel()
 
 	region := "us-phoenix-1\n"
+	canonicalRegion := "us-phoenix-1 "
 	instanceID := "ocid1.instance.oc1..exampleuniqueID"
+	compartmentID := "ocid1.compartment.oc1..exampleCompartment"
 	shapeBody := `{"ocpus":4,"memoryInGBs":64,` +
 		`"baselineOcpuUtilization":"BASELINE_1_1","baselineOcpus":4,` +
 		`"threadsPerCore":2,"networkingBandwidthInGbps":10,"maxVnicAttachments":2}`
+	regionInfoBody := `{"canonicalRegionName":"` + canonicalRegion + `","regionIdentifier":"phx"}`
 
 	responses := map[string]string{
-		regionResourcePath:      region,
-		instanceIDResourcePath:  instanceID,
-		shapeConfigResourcePath: shapeBody,
+		regionResourcePath:          region,
+		canonicalRegionResourcePath: regionInfoBody,
+		instanceIDResourcePath:      instanceID,
+		compartmentIDResourcePath:   compartmentID,
+		shapeConfigResourcePath:     shapeBody,
 	}
 
-	server := newIPv4TestServer(
-		t,
-		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
-			payload, ok := responses[req.URL.Path]
-			if !ok {
-				t.Fatalf("unexpected path: %s", req.URL.Path)
-			}
-
-			_, _ = writer.Write([]byte(payload))
-		}),
-	)
-	t.Cleanup(server.Close)
-
-	httpClient := server.Client()
-	httpClient.Timeout = time.Second
-
-	client := imds.NewClient(httpClient, imds.WithBaseURL(server.URL+"/opc/v2"))
+	client := newIMDSTestClient(t, responses)
 
 	ctx := context.Background()
 
@@ -68,9 +61,17 @@ func TestHTTPClientHappyPath(t *testing.T) {
 	requireNoError(t, err, "Region()")
 	requireEqual(t, "Region()", gotRegion, "us-phoenix-1")
 
+	gotCanonicalRegion, err := client.CanonicalRegion(ctx)
+	requireNoError(t, err, "CanonicalRegion()")
+	requireEqual(t, "CanonicalRegion()", gotCanonicalRegion, "us-phoenix-1")
+
 	gotID, err := client.InstanceID(ctx)
 	requireNoError(t, err, "InstanceID()")
 	requireEqual(t, "InstanceID()", gotID, instanceID)
+
+	gotCompartmentID, err := client.CompartmentID(ctx)
+	requireNoError(t, err, "CompartmentID()")
+	requireEqual(t, "CompartmentID()", gotCompartmentID, compartmentID)
 
 	shapeCfg, err := client.ShapeConfig(ctx)
 	requireNoError(t, err, "ShapeConfig()")
@@ -91,6 +92,8 @@ func TestHTTPClientRetriesOnServerError(t *testing.T) {
 			if req.URL.Path != regionResourcePath {
 				t.Fatalf("unexpected path: %s", req.URL.Path)
 			}
+
+			requireIMDSAuthHeader(t, req)
 
 			if calls.Add(1) == 1 {
 				writer.WriteHeader(http.StatusInternalServerError)
@@ -131,6 +134,8 @@ func TestHTTPClientRetriesOnTransportError(t *testing.T) {
 			t.Fatalf("unexpected path: %s", req.URL.Path)
 		}
 
+		requireIMDSAuthHeader(t, req)
+
 		switch attempts.Add(1) {
 		case 1:
 			return nil, errDialFailure
@@ -167,6 +172,8 @@ func TestHTTPClientContextCanceledDuringRequest(t *testing.T) {
 			t.Fatalf("unexpected path: %s", req.URL.Path)
 		}
 
+		requireIMDSAuthHeader(t, req)
+
 		attempts.Add(1)
 
 		cancelRaw := req.Context().Value(cancelFuncKey{})
@@ -202,6 +209,8 @@ func TestHTTPClientReadFailureIncludesCloseError(t *testing.T) {
 	t.Parallel()
 
 	httpClient := newHTTPClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requireIMDSAuthHeader(t, req)
+
 		return newHTTPResponse(
 			http.StatusOK,
 			&faultyReadCloser{
@@ -232,6 +241,8 @@ func TestHTTPClientCloseFailure(t *testing.T) {
 	t.Parallel()
 
 	httpClient := newHTTPClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requireIMDSAuthHeader(t, req)
+
 		return newHTTPResponse(
 			http.StatusOK,
 			&staticBody{
@@ -258,10 +269,15 @@ func TestHTTPClientCloseFailure(t *testing.T) {
 func TestHTTPClientNonRetryableStatusIncludesBody(t *testing.T) {
 	t.Parallel()
 
-	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(" not found \n"))
-	}))
+	server := newIPv4TestServer(
+		t,
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			requireIMDSAuthHeader(t, req)
+
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(" not found \n"))
+		}),
+	)
 	t.Cleanup(server.Close)
 
 	httpClient := server.Client()
@@ -284,10 +300,15 @@ func TestHTTPClientRetryBudgetExhaustedIncludesLastError(t *testing.T) {
 
 	var attempts atomic.Int32
 
-	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts.Add(1)
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
+	server := newIPv4TestServer(
+		t,
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			requireIMDSAuthHeader(t, req)
+
+			attempts.Add(1)
+			writer.WriteHeader(http.StatusTooManyRequests)
+		}),
+	)
 	t.Cleanup(server.Close)
 
 	httpClient := server.Client()
@@ -323,6 +344,8 @@ func TestHTTPClientWaitHonorsContextCancellation(t *testing.T) {
 	doneCh := make(chan struct{})
 
 	httpClient := newHTTPClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requireIMDSAuthHeader(t, req)
+
 		select {
 		case attemptCh <- struct{}{}:
 		default:
@@ -363,13 +386,18 @@ func TestHTTPClientWaitHonorsContextCancellation(t *testing.T) {
 func TestShapeConfigDecodeError(t *testing.T) {
 	t.Parallel()
 
-	server := newIPv4TestServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != shapeConfigResourcePath {
-			t.Fatalf("unexpected path: %s", req.URL.Path)
-		}
+	server := newIPv4TestServer(
+		t,
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			if req.URL.Path != shapeConfigResourcePath {
+				t.Fatalf("unexpected path: %s", req.URL.Path)
+			}
 
-		_, _ = w.Write([]byte("not-json"))
-	}))
+			requireIMDSAuthHeader(t, req)
+
+			_, _ = writer.Write([]byte("not-json"))
+		}),
+	)
 	t.Cleanup(server.Close)
 
 	httpClient := server.Client()
@@ -421,6 +449,39 @@ func requireEqual[T comparable](t *testing.T, field string, got, want T) {
 	if got != want {
 		t.Fatalf("%s = %v, want %v", field, got, want)
 	}
+}
+
+func requireIMDSAuthHeader(t *testing.T, req *http.Request) {
+	t.Helper()
+
+	got := req.Header.Get(authorizationHeaderKey)
+	if got != metadataAuthHeaderValue {
+		t.Fatalf("%s header = %q, want %q", authorizationHeaderKey, got, metadataAuthHeaderValue)
+	}
+}
+
+func newIMDSTestClient(t *testing.T, responses map[string]string) imds.Client {
+	t.Helper()
+
+	server := newIPv4TestServer(
+		t,
+		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			requireIMDSAuthHeader(t, req)
+
+			payload, ok := responses[req.URL.Path]
+			if !ok {
+				t.Fatalf("unexpected path: %s", req.URL.Path)
+			}
+
+			_, _ = writer.Write([]byte(payload))
+		}),
+	)
+	t.Cleanup(server.Close)
+
+	httpClient := server.Client()
+	httpClient.Timeout = time.Second
+
+	return imds.NewClient(httpClient, imds.WithBaseURL(server.URL+"/opc/v2"))
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

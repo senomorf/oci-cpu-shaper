@@ -554,42 +554,113 @@ func logIMDSMetadata(
 		return
 	}
 
-	region, regionErr := client.Region(ctx)
-	if regionErr != nil {
-		logger.Warn("failed to query instance region", zap.Error(regionErr))
+	fields = appendOnlineMetadata(ctx, logger, client, fields, trimmedOverride)
+
+	logger.Debug("initialized subsystems", fields...)
+}
+
+func queryTextMetadata(
+	ctx context.Context,
+	logger *zap.Logger,
+	fetch func(context.Context) (string, error),
+	warnMsg string,
+) (string, error) {
+	value, err := fetch(ctx)
+	if err != nil {
+		logger.Warn(warnMsg, zap.Error(err))
+
+		return "", err
 	}
 
-	instanceID := trimmedOverride
+	return value, nil
+}
+
+func queryShapeMetadata(
+	ctx context.Context,
+	logger *zap.Logger,
+	fetch func(context.Context) (imds.ShapeConfig, error),
+	warnMsg string,
+) (imds.ShapeConfig, error) {
+	value, err := fetch(ctx)
+	if err != nil {
+		logger.Warn(warnMsg, zap.Error(err))
+
+		return imds.ShapeConfig{}, err
+	}
+
+	return value, nil
+}
+
+func appendStringField(fields []zap.Field, key, value string, err error) []zap.Field {
+	if err != nil || strings.TrimSpace(value) == "" {
+		return fields
+	}
+
+	return append(fields, zap.String(key, value))
+}
+
+func appendShapeFields(fields []zap.Field, shape imds.ShapeConfig, err error) []zap.Field {
+	if err != nil {
+		return fields
+	}
+
+	return append(fields,
+		zap.Float64("shapeOCPUs", shape.OCPUs),
+		zap.Float64("shapeMemoryGB", shape.MemoryInGBs),
+	)
+}
+
+func appendOnlineMetadata(
+	ctx context.Context,
+	logger *zap.Logger,
+	client imds.Client,
+	fields []zap.Field,
+	overrideInstanceID string,
+) []zap.Field {
+	region, regionErr := queryTextMetadata(
+		ctx,
+		logger,
+		client.Region,
+		"failed to query instance region",
+	)
+	canonicalRegion, canonicalRegionErr := queryTextMetadata(
+		ctx,
+		logger,
+		client.CanonicalRegion,
+		"failed to query canonical region",
+	)
+
+	instanceID := overrideInstanceID
 
 	var instanceErr error
 	if instanceID == "" {
-		instanceID, instanceErr = client.InstanceID(ctx)
-		if instanceErr != nil {
-			logger.Warn("failed to query instance OCID", zap.Error(instanceErr))
-		}
-	}
-
-	shapeCfg, shapeErr := client.ShapeConfig(ctx)
-	if shapeErr != nil {
-		logger.Warn("failed to query instance shape config", zap.Error(shapeErr))
-	}
-
-	if regionErr == nil {
-		fields = append(fields, zap.String("region", region))
-	}
-
-	if instanceErr == nil {
-		fields = append(fields, zap.String("instanceID", instanceID))
-	}
-
-	if shapeErr == nil {
-		fields = append(fields,
-			zap.Float64("shapeOCPUs", shapeCfg.OCPUs),
-			zap.Float64("shapeMemoryGB", shapeCfg.MemoryInGBs),
+		instanceID, instanceErr = queryTextMetadata(
+			ctx,
+			logger,
+			client.InstanceID,
+			"failed to query instance OCID",
 		)
 	}
 
-	logger.Debug("initialized subsystems", fields...)
+	compartmentID, compartmentErr := queryTextMetadata(
+		ctx,
+		logger,
+		client.CompartmentID,
+		"failed to query compartment OCID",
+	)
+	shapeCfg, shapeErr := queryShapeMetadata(
+		ctx,
+		logger,
+		client.ShapeConfig,
+		"failed to query instance shape config",
+	)
+
+	fields = appendStringField(fields, "region", region, regionErr)
+	fields = appendStringField(fields, "canonicalRegion", canonicalRegion, canonicalRegionErr)
+	fields = appendStringField(fields, "instanceID", instanceID, instanceErr)
+	fields = appendStringField(fields, "compartmentID", compartmentID, compartmentErr)
+
+	return appendShapeFields(fields, shapeCfg, shapeErr)
 }
 
 func isValidMode(mode string) bool {

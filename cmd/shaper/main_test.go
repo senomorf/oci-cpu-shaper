@@ -36,6 +36,8 @@ var (
 const (
 	maxUint32         = ^uint32(0)
 	stubCompartmentID = "ocid1.compartment.oc1..test"
+	imdsAuthHeaderKey = "Authorization"
+	imdsAuthHeaderVal = "Bearer Oracle"
 )
 
 func TestParseArgsDefaults(t *testing.T) {
@@ -779,52 +781,31 @@ func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	client := &stubIMDSClient{
-		region:      "us-ashburn-1",
-		regionErr:   nil,
-		instanceID:  "ocid1.instance.oc1..exampleuniqueID",
-		instanceErr: nil,
-		shape: imds.ShapeConfig{
-			OCPUs:                     4,
-			MemoryInGBs:               64,
-			BaselineOcpuUtilization:   "",
-			BaselineOCPUs:             0,
-			ThreadsPerCore:            0,
-			NetworkingBandwidthInGbps: 0,
-			MaxVnicAttachments:        0,
-		},
-		shapeErr:      nil,
-		regionCalls:   0,
-		instanceCalls: 0,
-		shapeCalls:    0,
-	}
+	client := newLoggingStubIMDS(
+		"us-ashburn-1",
+		nil,
+		"us-ashburn-1",
+		nil,
+		"ocid1.instance.oc1..exampleuniqueID",
+		nil,
+		stubCompartmentID,
+		nil,
+		stubShapeConfig(4, 64),
+		nil,
+	)
 
 	ctrl := new(stubController)
 	ctrl.mode = modeDryRun
 
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
-	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
-	if len(entries) == 0 {
-		t.Fatalf("expected debug log entry, got %+v", observed.All())
-	}
-
-	entry := entries[0]
-	if fieldString(entry.Context, "region") != "us-ashburn-1" {
-		t.Fatalf("expected region field, got %+v", entry.Context)
-	}
-
-	if fieldString(entry.Context, "instanceID") != "ocid1.instance.oc1..exampleuniqueID" {
-		t.Fatalf("expected instanceID field, got %+v", entry.Context)
-	}
-
-	if fieldFloat(entry.Context, "shapeOCPUs") != 4 {
-		t.Fatalf("expected shapeOCPUs field, got %+v", entry.Context)
-	}
-
-	if fieldFloat(entry.Context, "shapeMemoryGB") != 64 {
-		t.Fatalf("expected shapeMemoryGB field, got %+v", entry.Context)
-	}
+	entry := requireSingleDebugEntry(t, observed)
+	requireLogFieldString(t, entry, "region", "us-ashburn-1")
+	requireLogFieldString(t, entry, "canonicalRegion", "us-ashburn-1")
+	requireLogFieldString(t, entry, "instanceID", "ocid1.instance.oc1..exampleuniqueID")
+	requireLogFieldString(t, entry, "compartmentID", stubCompartmentID)
+	requireLogFieldFloat(t, entry, "shapeOCPUs", 4)
+	requireLogFieldFloat(t, entry, "shapeMemoryGB", 64)
 }
 
 func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
@@ -833,25 +814,18 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	client := &stubIMDSClient{
-		region:      "",
-		regionErr:   errRegionDown,
-		instanceID:  "",
-		instanceErr: errInstanceDown,
-		shape: imds.ShapeConfig{
-			OCPUs:                     0,
-			MemoryInGBs:               0,
-			BaselineOcpuUtilization:   "",
-			BaselineOCPUs:             0,
-			ThreadsPerCore:            0,
-			NetworkingBandwidthInGbps: 0,
-			MaxVnicAttachments:        0,
-		},
-		shapeErr:      errShapeDown,
-		regionCalls:   0,
-		instanceCalls: 0,
-		shapeCalls:    0,
-	}
+	client := newLoggingStubIMDS(
+		"",
+		errRegionDown,
+		"",
+		errRegionDown,
+		"",
+		errInstanceDown,
+		"",
+		errInstanceDown,
+		stubShapeConfig(0, 0),
+		errShapeDown,
+	)
 
 	ctrl := new(stubController)
 	ctrl.mode = modeNoop
@@ -859,8 +833,8 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", false)
 
 	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
-	if len(warns) != 3 {
-		t.Fatalf("expected three warnings, got %d", len(warns))
+	if len(warns) != 5 {
+		t.Fatalf("expected five warnings, got %d", len(warns))
 	}
 }
 
@@ -870,25 +844,18 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 	core, observed := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	client := &stubIMDSClient{
-		region:      "us-chicago-1",
-		regionErr:   nil,
-		instanceID:  "",
-		instanceErr: nil,
-		shape: imds.ShapeConfig{
-			OCPUs:                     2,
-			MemoryInGBs:               32,
-			BaselineOcpuUtilization:   "",
-			BaselineOCPUs:             0,
-			ThreadsPerCore:            0,
-			NetworkingBandwidthInGbps: 0,
-			MaxVnicAttachments:        0,
-		},
-		shapeErr:      nil,
-		regionCalls:   0,
-		instanceCalls: 0,
-		shapeCalls:    0,
-	}
+	client := newLoggingStubIMDS(
+		"us-chicago-1",
+		nil,
+		"us-chicago-1",
+		nil,
+		"",
+		nil,
+		stubCompartmentID,
+		nil,
+		stubShapeConfig(2, 32),
+		nil,
+	)
 
 	ctrl := new(stubController)
 	ctrl.mode = modeDryRun
@@ -909,15 +876,18 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 		)
 	}
 
-	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
-	if len(entries) == 0 {
-		t.Fatalf("expected debug log entry, got %+v", observed.All())
+	if client.canonicalRegionCalls == 0 {
+		t.Fatalf("expected canonical region lookup when logging metadata")
 	}
 
-	entry := entries[0]
-	if fieldString(entry.Context, "instanceID") != "ocid1.instance.oc1..override" {
-		t.Fatalf("expected override instance id, got %+v", entry.Context)
+	if client.compartmentCalls == 0 {
+		t.Fatalf("expected compartment lookup when logging metadata")
 	}
+
+	entry := requireSingleDebugEntry(t, observed)
+	requireLogFieldString(t, entry, "instanceID", "ocid1.instance.oc1..override")
+	requireLogFieldString(t, entry, "canonicalRegion", "us-chicago-1")
+	requireLogFieldString(t, entry, "compartmentID", stubCompartmentID)
 
 	warns := observed.FilterLevelExact(zapcore.WarnLevel).All()
 	if len(warns) != 0 {
@@ -957,11 +927,23 @@ func TestMainIntegratesDefaultDependencies(t *testing.T) {
 	server := newIPv4TestServer(
 		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+			if req.Header.Get(imdsAuthHeaderKey) != imdsAuthHeaderVal {
+				t.Fatalf(
+					"expected IMDS authorization header %q, got %q",
+					imdsAuthHeaderVal,
+					req.Header.Get(imdsAuthHeaderKey),
+				)
+			}
+
 			switch req.URL.Path {
 			case "/opc/v2/instance/region":
 				_, _ = writer.Write([]byte("us-denver-1"))
+			case "/opc/v2/instance/regionInfo":
+				_, _ = writer.Write([]byte(`{"canonicalRegionName":"us-denver-1"}`))
 			case "/opc/v2/instance/id":
 				_, _ = writer.Write([]byte("ocid1.instance.oc1..main"))
+			case "/opc/v2/instance/compartmentId":
+				_, _ = writer.Write([]byte("ocid1.compartment.oc1..main"))
 			case "/opc/v2/instance/shape-config":
 				_, _ = writer.Write([]byte(`{"ocpus":1,"memoryInGBs":1}`))
 			default:
@@ -1193,11 +1175,36 @@ func fieldFloat(fields []zap.Field, key string) float64 {
 
 			return float64(math.Float32frombits(uint32(field.Integer)))
 		}
-
-		return 0
 	}
 
 	return 0
+}
+
+func requireLogFieldString(t *testing.T, entry observer.LoggedEntry, key, want string) {
+	t.Helper()
+
+	if got := fieldString(entry.Context, key); got != want {
+		t.Fatalf("expected %s field %q, got %+v", key, want, entry.Context)
+	}
+}
+
+func requireLogFieldFloat(t *testing.T, entry observer.LoggedEntry, key string, want float64) {
+	t.Helper()
+
+	if got := fieldFloat(entry.Context, key); got != want {
+		t.Fatalf("expected %s field %v, got %+v", key, want, entry.Context)
+	}
+}
+
+func requireSingleDebugEntry(t *testing.T, observed *observer.ObservedLogs) observer.LoggedEntry {
+	t.Helper()
+
+	entries := observed.FilterLevelExact(zapcore.DebugLevel).All()
+	if len(entries) == 0 {
+		t.Fatalf("expected debug log entry, got %+v", observed.All())
+	}
+
+	return entries[0]
 }
 
 func fieldDuration(fields []zap.Field, key string) (time.Duration, bool) {
@@ -1272,15 +1279,21 @@ func (s *stubMetricsAdapter) QueryP95CPU(context.Context, string) (float64, erro
 }
 
 type stubIMDSClient struct {
-	region        string
-	regionErr     error
-	instanceID    string
-	instanceErr   error
-	shape         imds.ShapeConfig
-	shapeErr      error
-	regionCalls   int
-	instanceCalls int
-	shapeCalls    int
+	region               string
+	regionErr            error
+	canonicalRegion      string
+	canonicalRegionErr   error
+	instanceID           string
+	instanceErr          error
+	compartmentID        string
+	compartmentErr       error
+	shape                imds.ShapeConfig
+	shapeErr             error
+	regionCalls          int
+	canonicalRegionCalls int
+	instanceCalls        int
+	compartmentCalls     int
+	shapeCalls           int
 }
 
 func (s *stubIMDSClient) Region(context.Context) (string, error) {
@@ -1289,10 +1302,22 @@ func (s *stubIMDSClient) Region(context.Context) (string, error) {
 	return s.region, s.regionErr
 }
 
+func (s *stubIMDSClient) CanonicalRegion(context.Context) (string, error) {
+	s.canonicalRegionCalls++
+
+	return s.canonicalRegion, s.canonicalRegionErr
+}
+
 func (s *stubIMDSClient) InstanceID(context.Context) (string, error) {
 	s.instanceCalls++
 
 	return s.instanceID, s.instanceErr
+}
+
+func (s *stubIMDSClient) CompartmentID(context.Context) (string, error) {
+	s.compartmentCalls++
+
+	return s.compartmentID, s.compartmentErr
 }
 
 func (s *stubIMDSClient) ShapeConfig(context.Context) (imds.ShapeConfig, error) {
@@ -1303,10 +1328,14 @@ func (s *stubIMDSClient) ShapeConfig(context.Context) (imds.ShapeConfig, error) 
 
 func newOfflineStubIMDS() *stubIMDSClient {
 	return &stubIMDSClient{
-		region:      "",
-		regionErr:   errRegionDown,
-		instanceID:  "",
-		instanceErr: errInstanceDown,
+		region:             "",
+		regionErr:          errRegionDown,
+		canonicalRegion:    "",
+		canonicalRegionErr: errRegionDown,
+		instanceID:         "",
+		instanceErr:        errInstanceDown,
+		compartmentID:      "",
+		compartmentErr:     errInstanceDown,
 		shape: imds.ShapeConfig{
 			OCPUs:                     0,
 			MemoryInGBs:               0,
@@ -1316,21 +1345,69 @@ func newOfflineStubIMDS() *stubIMDSClient {
 			NetworkingBandwidthInGbps: 0,
 			MaxVnicAttachments:        0,
 		},
-		shapeErr:      errShapeDown,
-		regionCalls:   0,
-		instanceCalls: 0,
-		shapeCalls:    0,
+		shapeErr:             errShapeDown,
+		regionCalls:          0,
+		canonicalRegionCalls: 0,
+		instanceCalls:        0,
+		compartmentCalls:     0,
+		shapeCalls:           0,
+	}
+}
+
+func newLoggingStubIMDS(
+	region string,
+	regionErr error,
+	canonicalRegion string,
+	canonicalErr error,
+	instanceID string,
+	instanceErr error,
+	compartmentID string,
+	compartmentErr error,
+	shape imds.ShapeConfig,
+	shapeErr error,
+) *stubIMDSClient {
+	return &stubIMDSClient{
+		region:               region,
+		regionErr:            regionErr,
+		canonicalRegion:      canonicalRegion,
+		canonicalRegionErr:   canonicalErr,
+		instanceID:           instanceID,
+		instanceErr:          instanceErr,
+		compartmentID:        compartmentID,
+		compartmentErr:       compartmentErr,
+		shape:                shape,
+		shapeErr:             shapeErr,
+		regionCalls:          0,
+		canonicalRegionCalls: 0,
+		instanceCalls:        0,
+		compartmentCalls:     0,
+		shapeCalls:           0,
+	}
+}
+
+func stubShapeConfig(ocpus, memory float64) imds.ShapeConfig {
+	return imds.ShapeConfig{
+		OCPUs:                     ocpus,
+		MemoryInGBs:               memory,
+		BaselineOcpuUtilization:   "",
+		BaselineOCPUs:             0,
+		ThreadsPerCore:            0,
+		NetworkingBandwidthInGbps: 0,
+		MaxVnicAttachments:        0,
 	}
 }
 
 func assertNoIMDSCalls(t *testing.T, client *stubIMDSClient) {
 	t.Helper()
 
-	if client.regionCalls != 0 || client.instanceCalls != 0 || client.shapeCalls != 0 {
+	if client.regionCalls != 0 || client.canonicalRegionCalls != 0 || client.instanceCalls != 0 ||
+		client.compartmentCalls != 0 || client.shapeCalls != 0 {
 		t.Fatalf(
-			"expected offline mode to skip imds lookups, got region=%d instance=%d shape=%d",
+			"expected offline mode to skip imds lookups, got region=%d canonical=%d instance=%d compartment=%d shape=%d",
 			client.regionCalls,
+			client.canonicalRegionCalls,
 			client.instanceCalls,
+			client.compartmentCalls,
 			client.shapeCalls,
 		)
 	}
