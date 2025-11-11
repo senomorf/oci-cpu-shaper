@@ -27,6 +27,7 @@ const (
 	envHTTPBind         = "HTTP_ADDR"
 	envCompartmentID    = "OCI_COMPARTMENT_ID"
 	envInstanceID       = "OCI_INSTANCE_ID"
+	envOCIOffline       = "OCI_OFFLINE"
 	envFallbackTarget   = "SHAPER_FALLBACK_TARGET"
 	envRelaxedThreshold = "SHAPER_RELAXED_THRESHOLD"
 	envGoalLow          = "SHAPER_GOAL_LOW"
@@ -71,6 +72,7 @@ type httpConfig struct {
 type ociConfig struct {
 	CompartmentID string
 	InstanceID    string
+	Offline       bool
 }
 
 type fileConfig struct {
@@ -111,6 +113,7 @@ type httpFileConfig struct {
 type ociFileConfig struct {
 	CompartmentID *string `yaml:"compartmentId"`
 	InstanceID    *string `yaml:"instanceId"`
+	Offline       *bool   `yaml:"offline"`
 }
 
 func defaultRuntimeConfig() runtimeConfig {
@@ -209,6 +212,7 @@ func mergeHTTPConfig(dst *httpConfig, src httpFileConfig) {
 func mergeOCIConfig(dst *ociConfig, src ociFileConfig) {
 	assignString(&dst.CompartmentID, src.CompartmentID)
 	assignString(&dst.InstanceID, src.InstanceID)
+	assignBool(&dst.Offline, src.Offline)
 }
 
 func applyEnvOverrides(cfg *runtimeConfig) {
@@ -228,6 +232,7 @@ func applyEnvOverrides(cfg *runtimeConfig) {
 	cfg.HTTP.Bind = envString(envHTTPBind, cfg.HTTP.Bind)
 	cfg.OCI.CompartmentID = envString(envCompartmentID, cfg.OCI.CompartmentID)
 	cfg.OCI.InstanceID = envString(envInstanceID, cfg.OCI.InstanceID)
+	cfg.OCI.Offline = envBool(envOCIOffline, cfg.OCI.Offline)
 
 	defaults := adapt.DefaultConfig()
 
@@ -292,6 +297,12 @@ func assignString(target *string, value *string) {
 	}
 }
 
+func assignBool(target *bool, value *bool) {
+	if value != nil {
+		*target = *value
+	}
+}
+
 func envFloat(key string, fallback float64) float64 {
 	value, ok := lookupEnv(key)
 	if !ok {
@@ -351,4 +362,21 @@ func envString(key, fallback string) string {
 	}
 
 	return trimmed
+}
+
+func envBool(key string, fallback bool) bool {
+	value, ok := lookupEnv(key)
+	if !ok {
+		return fallback
+	}
+
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	switch trimmed {
+	case "1", "t", "true", "yes", "y":
+		return true
+	case "0", "f", "false", "no", "n":
+		return false
+	default:
+		return fallback
+	}
 }

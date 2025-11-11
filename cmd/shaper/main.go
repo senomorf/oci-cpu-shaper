@@ -28,6 +28,8 @@ const (
 
 	imdsEndpointEnv = "OCI_CPU_SHAPER_IMDS_ENDPOINT"
 
+	offlineInstanceFallback = "offline-instance"
+
 	exitCodeSuccess      = 0
 	exitCodeRuntimeError = 1
 	exitCodeParseError   = 2
@@ -155,7 +157,7 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 		pool.Start(ctx)
 	}
 
-	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID)
+	logIMDSMetadata(ctx, logger, imdsClient, controller, cfg.OCI.InstanceID, cfg.OCI.Offline)
 
 	runErr := controller.Run(ctx)
 	if runErr != nil {
@@ -304,26 +306,21 @@ func buildAdaptiveController(
 	cfg runtimeConfig,
 	imdsClient imds.Client,
 ) (adapt.Controller, poolStarter, error) {
-	instanceID := strings.TrimSpace(cfg.OCI.InstanceID)
-	if instanceID == "" {
-		fetchedID, err := imdsClient.InstanceID(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("lookup instance ocid: %w", err)
-		}
+	offline := cfg.OCI.Offline
 
-		instanceID = strings.TrimSpace(fetchedID)
+	instanceID, err := resolveInstanceID(ctx, cfg, offline, imdsClient)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	compartmentID := strings.TrimSpace(cfg.OCI.CompartmentID)
-	if compartmentID == "" {
+	if compartmentID == "" && !offline {
 		return nil, nil, errControllerCompartmentRequired
 	}
 
-	factory := metricsClientFactoryFromContext(ctx)
-
-	metricsClient, err := factory(compartmentID)
+	metricsClient, err := createMetricsClient(ctx, cfg, offline, compartmentID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build monitoring client: %w", err)
+		return nil, nil, err
 	}
 
 	pool, err := shape.NewPool(cfg.Pool.Workers, cfg.Pool.Quantum)
@@ -355,6 +352,50 @@ func buildAdaptiveController(
 	}
 
 	return controller, pool, nil
+}
+
+func resolveInstanceID(
+	ctx context.Context,
+	cfg runtimeConfig,
+	offline bool,
+	imdsClient imds.Client,
+) (string, error) {
+	instanceID := strings.TrimSpace(cfg.OCI.InstanceID)
+	if instanceID != "" {
+		return instanceID, nil
+	}
+
+	if offline {
+		return offlineInstanceFallback, nil
+	}
+
+	fetchedID, err := imdsClient.InstanceID(ctx)
+	if err != nil {
+		return "", fmt.Errorf("lookup instance ocid: %w", err)
+	}
+
+	return strings.TrimSpace(fetchedID), nil
+}
+
+//nolint:ireturn // wiring requires interface for factories.
+func createMetricsClient(
+	ctx context.Context,
+	cfg runtimeConfig,
+	offline bool,
+	compartmentID string,
+) (oci.MetricsClient, error) {
+	if offline {
+		return oci.NewStaticMetricsClient(cfg.Controller.TargetStart), nil
+	}
+
+	factory := metricsClientFactoryFromContext(ctx)
+
+	metricsClient, err := factory(compartmentID)
+	if err != nil {
+		return nil, fmt.Errorf("build monitoring client: %w", err)
+	}
+
+	return metricsClient, nil
 }
 
 //nolint:ireturn // factory returns interface for dependency substitution.
@@ -405,13 +446,31 @@ func logIMDSMetadata(
 	client imds.Client,
 	controller adapt.Controller,
 	overrideInstanceID string,
+	offline bool,
 ) {
+	fields := []zap.Field{
+		zap.String("controllerMode", controller.Mode()),
+		zap.Bool("offline", offline),
+	}
+
+	trimmedOverride := strings.TrimSpace(overrideInstanceID)
+
+	if offline {
+		if trimmedOverride != "" {
+			fields = append(fields, zap.String("instanceID", trimmedOverride))
+		}
+
+		logger.Debug("initialized subsystems", fields...)
+
+		return
+	}
+
 	region, regionErr := client.Region(ctx)
 	if regionErr != nil {
 		logger.Warn("failed to query instance region", zap.Error(regionErr))
 	}
 
-	instanceID := strings.TrimSpace(overrideInstanceID)
+	instanceID := trimmedOverride
 
 	var instanceErr error
 	if instanceID == "" {
@@ -424,10 +483,6 @@ func logIMDSMetadata(
 	shapeCfg, shapeErr := client.ShapeConfig(ctx)
 	if shapeErr != nil {
 		logger.Warn("failed to query instance shape config", zap.Error(shapeErr))
-	}
-
-	fields := []zap.Field{
-		zap.String("controllerMode", controller.Mode()),
 	}
 
 	if regionErr == nil {

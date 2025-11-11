@@ -1,0 +1,4 @@
+oci:
+  compartmentId: ""
+  instanceId: "ocid1.instance.oc1..offline"
+  offline: true

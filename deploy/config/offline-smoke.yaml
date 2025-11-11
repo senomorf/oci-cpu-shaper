@@ -1,0 +1,14 @@
+controller:
+  interval: 15s
+  relaxedInterval: 1m
+  relaxedThreshold: 0.30
+  fallbackTarget: 0.25
+estimator:
+  interval: 5s
+pool:
+  workers: 1
+  quantum: 10ms
+oci:
+  compartmentId: ""
+  instanceId: "ocid1.instance.oc1..offline-smoke"
+  offline: true
