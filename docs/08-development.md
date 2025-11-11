@@ -38,7 +38,8 @@ Running the `test` target enables the Go race detector by default, helping detec
 1. Update code and add or adjust tests.
 2. Run `make fmt` to normalize formatting with `gofmt` and `gofumpt`.
 3. Execute `make check` to run linting and race-enabled tests together (or `make lint` / `make test` individually); because linting applies auto-fixes, review `git status` afterward and stage the generated edits.
-4. Optionally execute `make build` to confirm the binary compiles successfully.
+4. Re-run `go test ./... -race` and `golangci-lint run` (or `make check`) until they pass—features and fixes must never ship while any test or lint job is failing (§11).
+5. Optionally execute `make build` to confirm the binary compiles successfully.
 
 The lint configuration enables checks such as `staticcheck`, `ineffassign`, `gofumpt`, and `goimports`, ensuring both correctness and import formatting stay consistent with CI expectations. These steps help keep changes consistent and maintainable across the project.
 

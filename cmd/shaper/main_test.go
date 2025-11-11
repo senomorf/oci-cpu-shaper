@@ -476,18 +476,17 @@ func TestDefaultControllerFactoryPropagatesIMDSError(t *testing.T) {
 func TestBuildAdaptiveControllerUsesConfiguredInstanceID(t *testing.T) {
 	t.Parallel()
 
-	originalFactory := newMetricsClient
-
-	t.Cleanup(func() { newMetricsClient = originalFactory })
-
 	stubMetrics := newStubMetricsClient()
-	newMetricsClient = func(compartmentID string) (oci.MetricsClient, error) {
-		if compartmentID != testCompartmentOverride {
-			t.Fatalf("unexpected compartment id: %s", compartmentID)
-		}
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(compartmentID string) (oci.MetricsClient, error) {
+			if compartmentID != testCompartmentOverride {
+				t.Fatalf("unexpected compartment id: %s", compartmentID)
+			}
 
-		return stubMetrics, nil
-	}
+			return stubMetrics, nil
+		},
+	)
 
 	cfg := defaultRuntimeConfig()
 	cfg.OCI.CompartmentID = testCompartmentOverride
@@ -498,7 +497,7 @@ func TestBuildAdaptiveControllerUsesConfiguredInstanceID(t *testing.T) {
 	imdsClient.instanceErr = errInstanceDown
 
 	controller, pool, err := buildAdaptiveController(
-		context.Background(),
+		ctx,
 		modeDryRun,
 		cfg,
 		imdsClient,
