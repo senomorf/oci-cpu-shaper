@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  shaper:
+    image: ${SHAPER_IMAGE:-oci-cpu-shaper:rootful}
+    container_name: ${SHAPER_CONTAINER_NAME:-oci-cpu-shaper-rootful}
+    user: ${SHAPER_USER:-0:0}
+    command:
+      - "--config"
+      - "/etc/oci-cpu-shaper/config.yaml"
+      - "--mode"
+      - "${SHAPER_MODE:-dry-run}"
+      - "--log-level"
+      - "${SHAPER_LOG_LEVEL:-info}"
+    env_file:
+      - ${SHAPER_ENV_FILE:-./deploy/compose/mode-b.env.example}
+    volumes:
+      - ${SHAPER_CONFIG_PATH:-./configs/mode-b.yaml}:/etc/oci-cpu-shaper/config.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_add:
+      - ${SHAPER_CAP_SYS_NICE:-SYS_NICE}
+    cpu_shares: ${SHAPER_CPU_SHARES:-128}
+    # cpus: ${SHAPER_CPUS:-0.30}
+    network_mode: "${SHAPER_NETWORK_MODE:-host}"
+    restart: "${SHAPER_RESTART_POLICY:-unless-stopped}"

@@ -1,0 +1,24 @@
+# Example Quadlet unit for running OCI CPU Shaper in Mode B with root privileges.
+#
+# Install by copying to ~/.config/containers/systemd/ and running:
+#   systemctl --user enable --now mode-b.rootful.container
+
+[Unit]
+Description=OCI CPU Shaper (Mode B Rootful)
+
+[Container]
+Image=oci-cpu-shaper:rootful
+User=0:0
+AddCapability=SYS_NICE
+CPUWeight=128
+# CPUS=0.30
+Network=host
+Volume=/etc/oci-cpu-shaper/config.yaml:/etc/oci-cpu-shaper/config.yaml:ro
+ReadOnly=true
+Tmpfs=/tmp
+Exec=/shaper --config /etc/oci-cpu-shaper/config.yaml --mode dry-run --log-level info
+EnvironmentFile=/etc/sysconfig/oci-cpu-shaper.env
+Restart=always
+
+[Install]
+WantedBy=default.target
