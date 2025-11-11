@@ -824,11 +824,19 @@ func overrideInstancePrincipalProvider(
 ) {
 	t.Helper()
 
+	instancePrincipalProviderMu.Lock()
+
 	original := instancePrincipalProviderFn
 	instancePrincipalProviderFn = provider
 
+	instancePrincipalProviderMu.Unlock()
+
 	t.Cleanup(func() {
+		instancePrincipalProviderMu.Lock()
+
 		instancePrincipalProviderFn = original
+
+		instancePrincipalProviderMu.Unlock()
 	})
 }
 
@@ -838,11 +846,19 @@ func overrideNewMonitoringClient(
 ) {
 	t.Helper()
 
+	newMonitoringClientMu.Lock()
+
 	original := newMonitoringClientFn
 	newMonitoringClientFn = constructor
 
+	newMonitoringClientMu.Unlock()
+
 	t.Cleanup(func() {
+		newMonitoringClientMu.Lock()
+
 		newMonitoringClientFn = original
+
+		newMonitoringClientMu.Unlock()
 	})
 }
 

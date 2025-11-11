@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -34,6 +35,8 @@ var (
 
 	instancePrincipalProviderFn = auth.InstancePrincipalConfigurationProvider             //nolint:gochecknoglobals
 	newMonitoringClientFn       = monitoring.NewMonitoringClientWithConfigurationProvider //nolint:gochecknoglobals
+	instancePrincipalProviderMu sync.RWMutex                                              //nolint:gochecknoglobals
+	newMonitoringClientMu       sync.RWMutex                                              //nolint:gochecknoglobals
 )
 
 type metricsClient interface {
@@ -58,12 +61,24 @@ func NewInstancePrincipalClient(compartmentID string) (*Client, error) {
 		return nil, errMissingCompartmentID
 	}
 
-	provider, err := instancePrincipalProviderFn()
+	instancePrincipalProviderMu.RLock()
+
+	providerFn := instancePrincipalProviderFn
+
+	instancePrincipalProviderMu.RUnlock()
+
+	provider, err := providerFn()
 	if err != nil {
 		return nil, fmt.Errorf("build instance principal provider: %w", err)
 	}
 
-	monitoringClient, err := newMonitoringClientFn(provider)
+	newMonitoringClientMu.RLock()
+
+	monitoringClientFn := newMonitoringClientFn
+
+	newMonitoringClientMu.RUnlock()
+
+	monitoringClient, err := monitoringClientFn(provider)
 	if err != nil {
 		return nil, fmt.Errorf("create monitoring client: %w", err)
 	}
