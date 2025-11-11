@@ -51,7 +51,7 @@ Every pull request also exercises the container delivery path. The CI workflow b
 docker run --rm oci-cpu-shaper:test --mode dry-run
 ```
 
-After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made.
+After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made. The container image now ships `/etc/oci-cpu-shaper/config.yaml` with `oci.offline: true`, letting the packaged binary wire the adaptive controller using the static metrics client and fallback instance ID described in §9.2 so smoke tests succeed without IMDS or Monitoring credentials; unset `OCI_OFFLINE` or override the config when targeting real tenancy environments.
 
 ## §11.2 CPU Weight Integration Suite
 

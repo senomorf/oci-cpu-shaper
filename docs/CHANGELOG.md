@@ -25,6 +25,7 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
 - §11 development workflow now mandates shipping changes only after `go test ./... -race` and `golangci-lint run` succeed, reinforcing the all-tests-pass requirement alongside the existing ≥85% coverage guardrail.
 - CLI runtime configuration accepts an `oci.instanceId`/`OCI_INSTANCE_ID` override so dry-run and enforce modes can bootstrap when IMDS access is unavailable (e.g., CI smoke tests), with docs refreshed in §§2 and 9.
+- CLI runtime configuration now recognises `oci.offline`/`OCI_OFFLINE`, substituting a static metrics client and fallback instance ID so dry-run and enforce bootstrap without IMDS or Monitoring access. Container docs in §§8 and 9 cover the new smoke-test defaults.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.
 - Container build now targets the latest Go toolchain and documentation references the up-to-date requirements.
 - CI and release automation now leverage GitHub Actions caching to speed linting, testing, and multi-architecture builds (§14).

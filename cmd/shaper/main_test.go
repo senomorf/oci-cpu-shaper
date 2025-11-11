@@ -519,6 +519,41 @@ func TestBuildAdaptiveControllerUsesConfiguredInstanceID(t *testing.T) {
 	}
 }
 
+func TestBuildAdaptiveControllerOfflineSkipsExternalDependencies(t *testing.T) {
+	t.Parallel()
+
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string) (oci.MetricsClient, error) {
+			t.Fatal("expected offline mode to avoid metrics factory")
+
+			return nil, errStubControllerRun
+		},
+	)
+
+	cfg := defaultRuntimeConfig()
+	cfg.Controller.TargetStart = 0.42
+	cfg.OCI.CompartmentID = ""
+	cfg.OCI.InstanceID = ""
+	cfg.OCI.Offline = true
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceErr = errInstanceDown
+
+	controller, pool, err := buildAdaptiveController(ctx, modeDryRun, cfg, imdsClient)
+	if err != nil {
+		t.Fatalf("buildAdaptiveController returned error: %v", err)
+	}
+
+	if pool == nil {
+		t.Fatal("expected worker pool to be initialized")
+	}
+
+	if controller.Mode() != modeDryRun {
+		t.Fatalf("unexpected mode: %s", controller.Mode())
+	}
+}
+
 func TestMainSuccessDoesNotExit(t *testing.T) { //nolint:paralleltest // mutates process-wide state
 	originalExit := exitProcess
 
