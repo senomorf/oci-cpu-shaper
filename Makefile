@@ -12,6 +12,7 @@ COVERAGE_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(PKGS))
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOFUMPT_VERSION ?= 0.9.2
+GOVULNCHECK_VERSION ?= v1.1.4
 
 GO_BIN_PATH := $(shell $(GO) env GOBIN)
 ifeq ($(GO_BIN_PATH),)
@@ -22,12 +23,13 @@ GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
+GOVULNCHECK_CACHE_DIR := $(ROOT_DIR)/.cache/govulncheck
 
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 GOCACHE_DIR := $(ROOT_DIR)/.cache/go
 GOLANGCI_LINT_CACHE_DIR := $(ROOT_DIR)/.cache/golangci
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck
 
 tools: ensure-golangci-lint ensure-gofumpt
 
@@ -105,6 +107,12 @@ coverage:
 	fi
 agents:
 	$(GO) run ./cmd/agentscheck
+
+govulncheck:
+	@set -euo pipefail; \
+	mkdir -p "$(GOCACHE_DIR)" "$(GOVULNCHECK_CACHE_DIR)"; \
+	GOCACHE="$(GOCACHE_DIR)" GOVULNCHECK_CACHE="$(GOVULNCHECK_CACHE_DIR)" \
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 check: lint test agents
 
