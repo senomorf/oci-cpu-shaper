@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -155,7 +156,8 @@ func TestQueryP95CPUFetchesLatestDatapoint(t *testing.T) {
 
 	expectedQuery := "CpuUtilization[1m]{resourceId = \"" + instanceID + "\"}.percentile(0.95)"
 
-	server := httptest.NewServer(
+	server := newIPv4TestServer(
+		t,
 		http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 			t.Helper()
 
@@ -208,7 +210,7 @@ func TestQueryP95CPUFetchesLatestDatapoint(t *testing.T) {
 func TestQueryP95CPUHandlesMissingData(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server := newIPv4TestServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	t.Cleanup(server.Close)
 
 	verifying := newHTTPVerifyingClient(
@@ -236,7 +238,7 @@ func TestQueryP95CPUHandlesMissingData(t *testing.T) {
 func TestQueryP95CPUPropagatesErrors(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server := newIPv4TestServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	t.Cleanup(server.Close)
 
 	verifying := newHTTPVerifyingClient(t, server, nil, nil)
@@ -940,6 +942,26 @@ func stubConfigurationProvider(t *testing.T) fakeConfigurationProvider {
 	key := testPrivateKey(t)
 
 	return fakeConfigurationProvider{key: key}
+}
+
+// newIPv4TestServer binds to the IPv4 loopback explicitly so tests still work when
+// the sandbox forbids listening on IPv6.
+func newIPv4TestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewUnstartedServer(handler)
+
+	var lc net.ListenConfig
+
+	listener, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp4: %v", err)
+	}
+
+	server.Listener = listener
+	server.Start()
+
+	return server
 }
 
 var (

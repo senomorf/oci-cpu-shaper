@@ -104,9 +104,8 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	assertBoolEqual(t, "offline", cfg.OCI.Offline, true)
 }
 
+//nolint:paralleltest // manipulates shared lookupEnv globally
 func TestLoadConfigAppliesOfflineFileOverride(t *testing.T) {
-	t.Parallel()
-
 	path := filepath.Join("testdata", "offline.yaml")
 
 	cfg, err := loadConfig(path)
@@ -123,8 +122,32 @@ func TestLoadConfigAppliesOfflineFileOverride(t *testing.T) {
 		t.Fatalf("unexpected instance id override: %q", cfg.OCI.InstanceID)
 	}
 
-	if cfg.OCI.InstanceID != "ocid1.instance.oc1..override" {
-		t.Fatalf("expected env override for instance ID, got %q", cfg.OCI.InstanceID)
+	expectedOverride := "ocid1.instance.oc1..override"
+	origLookupEnv := lookupEnv
+
+	t.Cleanup(func() {
+		lookupEnv = origLookupEnv
+	})
+
+	lookupEnv = func(key string) (string, bool) {
+		if key == envInstanceID {
+			return " " + expectedOverride + " ", true
+		}
+
+		return origLookupEnv(key)
+	}
+
+	overrideCfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig returned error: %v", err)
+	}
+
+	if !overrideCfg.OCI.Offline {
+		t.Fatal("expected offline flag to remain enabled after env override")
+	}
+
+	if overrideCfg.OCI.InstanceID != expectedOverride {
+		t.Fatalf("expected env override for instance ID, got %q", overrideCfg.OCI.InstanceID)
 	}
 }
 
