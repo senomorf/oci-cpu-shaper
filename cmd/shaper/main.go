@@ -209,9 +209,11 @@ func run(
 		metricsExporter,
 	)
 	if buildErr != nil {
+		code := exitCodeForConfigError(buildErr)
+
 		logger.Error("failed to build controller", zap.Error(buildErr))
 
-		return exitCodeRuntimeError
+		return code
 	}
 
 	err = configureMetrics(ctx, deps, logger, cfg, metricsExporter, pool)
@@ -269,6 +271,14 @@ func handleControllerRunResult(logger *zap.Logger, runErr error) int {
 
 		return exitCodeRuntimeError
 	}
+}
+
+func exitCodeForConfigError(err error) int {
+	if errors.Is(err, adapt.ErrInvalidConfig) {
+		return exitCodeParseError
+	}
+
+	return exitCodeRuntimeError
 }
 
 func writeError(dst io.Writer, err error, code int) int {
@@ -404,10 +414,12 @@ func loadRuntimeConfigOrExit(
 ) (runtimeConfig, int, bool) {
 	cfg, loadErr := deps.loadConfig(path)
 	if loadErr != nil {
+		code := exitCodeForConfigError(loadErr)
+
 		exitCode := writeError(
 			stderr,
 			fmt.Errorf("failed to load configuration: %w", loadErr),
-			exitCodeRuntimeError,
+			code,
 		)
 
 		var empty runtimeConfig

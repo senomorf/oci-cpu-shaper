@@ -6,8 +6,10 @@ import "context"
 //
 // Tests and CLI wiring still depend on the interface return type.
 //
-
-func NewStaticMetricsClient(value float64) MetricsClient {
+//nolint:ireturn // CLI wiring expects an interface
+func NewStaticMetricsClient(
+	value float64,
+) MetricsClient {
 	return &staticMetricsClient{value: value}
 }
 

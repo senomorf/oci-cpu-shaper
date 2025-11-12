@@ -162,33 +162,19 @@ func loadConfig(path string) (runtimeConfig, error) {
 	cfg := defaultRuntimeConfig()
 
 	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		applyEnvOverrides(&cfg)
-
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(trimmed)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return runtimeConfig{}, fmt.Errorf("read config file %q: %w", trimmed, err)
-		}
-	} else {
-		var fileCfg fileConfig
-
-		err := yaml.Unmarshal(data, &fileCfg)
+	if trimmed != "" {
+		err := mergeRuntimeConfigFile(&cfg, trimmed)
 		if err != nil {
-			return runtimeConfig{}, fmt.Errorf("decode config file %q: %w", trimmed, err)
+			return runtimeConfig{}, err
 		}
-
-		mergeControllerConfig(&cfg.Controller, fileCfg.Controller)
-		mergeEstimatorConfig(&cfg.Estimator, fileCfg.Estimator)
-		mergePoolConfig(&cfg.Pool, fileCfg.Pool)
-		mergeHTTPConfig(&cfg.HTTP, fileCfg.HTTP)
-		mergeOCIConfig(&cfg.OCI, fileCfg.OCI)
 	}
 
 	applyEnvOverrides(&cfg)
+
+	err := adapt.ValidateConfig(runtimeToAdaptControllerConfig(cfg))
+	if err != nil {
+		return runtimeConfig{}, fmt.Errorf("validate controller config: %w", err)
+	}
 
 	return cfg, nil
 }
@@ -399,4 +385,50 @@ func envBool(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func runtimeToAdaptControllerConfig(cfg runtimeConfig) adapt.Config {
+	return adapt.Config{
+		ResourceID:        "",
+		Mode:              "",
+		TargetStart:       cfg.Controller.TargetStart,
+		TargetMin:         cfg.Controller.TargetMin,
+		TargetMax:         cfg.Controller.TargetMax,
+		StepUp:            cfg.Controller.StepUp,
+		StepDown:          cfg.Controller.StepDown,
+		FallbackTarget:    cfg.Controller.FallbackTarget,
+		GoalLow:           cfg.Controller.GoalLow,
+		GoalHigh:          cfg.Controller.GoalHigh,
+		Interval:          cfg.Controller.Interval,
+		RelaxedInterval:   cfg.Controller.RelaxedInterval,
+		RelaxedThreshold:  cfg.Controller.RelaxedThreshold,
+		SuppressThreshold: cfg.Controller.SuppressThreshold,
+		SuppressResume:    cfg.Controller.SuppressResume,
+	}
+}
+
+func mergeRuntimeConfigFile(cfg *runtimeConfig, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return fmt.Errorf("read config file %q: %w", path, err)
+	}
+
+	var fileCfg fileConfig
+
+	err = yaml.Unmarshal(data, &fileCfg)
+	if err != nil {
+		return fmt.Errorf("decode config file %q: %w", path, err)
+	}
+
+	mergeControllerConfig(&cfg.Controller, fileCfg.Controller)
+	mergeEstimatorConfig(&cfg.Estimator, fileCfg.Estimator)
+	mergePoolConfig(&cfg.Pool, fileCfg.Pool)
+	mergeHTTPConfig(&cfg.HTTP, fileCfg.HTTP)
+	mergeOCIConfig(&cfg.OCI, fileCfg.OCI)
+
+	return nil
 }
