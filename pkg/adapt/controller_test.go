@@ -133,6 +133,65 @@ func TestControllerStateTransitions(t *testing.T) {
 	}
 }
 
+func TestControllerCpuUtilisationAcrossOCPUs(t *testing.T) {
+	t.Parallel()
+
+	// CpuUtilisation is reported as the percentage of busy time across the
+	// entire instance, so shapes with additional OCPUs should follow the
+	// exact same adjustment cadence. The cases below simulate the
+	// aggregated stream for 1–4 OCPU shapes to confirm the controller keeps
+	// returning the same targets and relaxed intervals during prolonged
+	// bursts.
+	highUtilisationScenario := controllerScenario{
+		name: "baseline ocpu burst",
+		results: []metricResult{
+			{value: 0.15, err: nil},
+			{value: 0.32, err: nil},
+			{value: 0.34, err: nil},
+			{value: 0.36, err: nil},
+			{value: 0.38, err: nil},
+			{value: 0.40, err: nil},
+			{value: 0.45, err: nil},
+		},
+		expectations: []stepExpectation{
+			{state: StateNormal, target: 0.27, nextInterval: time.Hour},
+			{state: StateNormal, target: 0.26, nextInterval: 6 * time.Hour},
+			{state: StateNormal, target: 0.25, nextInterval: 6 * time.Hour},
+			{state: StateNormal, target: 0.24, nextInterval: 6 * time.Hour},
+			{state: StateNormal, target: 0.23, nextInterval: 6 * time.Hour},
+			{state: StateNormal, target: 0.22, nextInterval: 6 * time.Hour},
+			{state: StateNormal, target: 0.22, nextInterval: 6 * time.Hour},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		ocpus int
+	}{
+		{name: "1-ocpu burst matches policy", ocpus: 1},
+		{name: "2-ocpu burst matches policy", ocpus: 2},
+		{name: "3-ocpu burst matches policy", ocpus: 3},
+		{name: "4-ocpu burst matches policy", ocpus: 4},
+	}
+
+	for _, shapeCase := range cases {
+		t.Run(shapeCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			results := append([]metricResult(nil), highUtilisationScenario.results...)
+			expectations := append([]stepExpectation(nil), highUtilisationScenario.expectations...)
+
+			scenario := controllerScenario{
+				name:         shapeCase.name,
+				results:      results,
+				expectations: expectations,
+			}
+
+			runControllerScenario(t, scenario)
+		})
+	}
+}
+
 func runControllerScenario(t *testing.T, scenario controllerScenario) {
 	t.Helper()
 
