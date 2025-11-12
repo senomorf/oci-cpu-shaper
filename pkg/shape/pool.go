@@ -121,7 +121,8 @@ func (p *Pool) worker(ctx context.Context) {
 	defer ticker.Stop()
 
 	if startHook != nil {
-		if err := startHook(); err != nil && startErrorHandler != nil {
+		err := startHook()
+		if err != nil && startErrorHandler != nil {
 			startErrorHandler(err)
 		}
 	}
