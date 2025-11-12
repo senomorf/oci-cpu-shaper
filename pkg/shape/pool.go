@@ -20,6 +20,9 @@ type Pool struct {
 
 	tickerFactory func(time.Duration) ticker
 
+	workerStartHook         func() error
+	workerStartErrorHandler func(error)
+
 	targetBits atomic.Uint64
 }
 
@@ -60,7 +63,10 @@ func NewPool(workers int, quantum time.Duration) (*Pool, error) {
 	poolInstance.tickerFactory = func(duration time.Duration) ticker {
 		return &runtimeTicker{ticker: time.NewTicker(duration)}
 	}
+	poolInstance.SetWorkerStartErrorHandler(nil)
 	poolInstance.SetTarget(0)
+
+	configureRootfulHooks(poolInstance)
 
 	return poolInstance, nil
 }
@@ -92,14 +98,33 @@ func (p *Pool) Target() float64 {
 	return math.Float64frombits(p.targetBits.Load())
 }
 
+// SetWorkerStartErrorHandler installs a hook invoked when the worker start hook fails.
+//
+// A nil handler resets the hook to a no-op.
+func (p *Pool) SetWorkerStartErrorHandler(handler func(error)) {
+	if handler == nil {
+		handler = func(error) {}
+	}
+
+	p.workerStartErrorHandler = handler
+}
+
 func (p *Pool) worker(ctx context.Context) {
 	quantum := p.quantum
 	busyFn := p.busyFunc
 	sleepFn := p.sleepFunc
 	yieldFn := p.yieldFunc
+	startHook := p.workerStartHook
+	startErrorHandler := p.workerStartErrorHandler
 
 	ticker := p.tickerFactory(quantum)
 	defer ticker.Stop()
+
+	if startHook != nil {
+		if err := startHook(); err != nil && startErrorHandler != nil {
+			startErrorHandler(err)
+		}
+	}
 
 	for {
 		select {

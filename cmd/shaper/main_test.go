@@ -1395,6 +1395,8 @@ func (s *stubPoolStarter) Start(context.Context) {
 	s.startCount++
 }
 
+func (*stubPoolStarter) SetWorkerStartErrorHandler(func(error)) {}
+
 type stubMetricsAdapter struct{}
 
 func newStubMetricsClient() *stubMetricsAdapter {
