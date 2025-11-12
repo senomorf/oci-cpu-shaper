@@ -52,8 +52,6 @@ func main() {
 
 var exitProcess = os.Exit //nolint:gochecknoglobals // replaceable for tests
 
-var versionOutput io.Writer = os.Stdout //nolint:gochecknoglobals // replaceable for tests
-
 type runDeps struct {
 	newLogger     func(level string) (*zap.Logger, error)
 	newIMDS       func() imds.Client
@@ -73,6 +71,7 @@ type runDeps struct {
 		addr string,
 		handler http.Handler,
 	) error
+	versionWriter io.Writer
 }
 
 type poolStarter interface {
@@ -174,7 +173,7 @@ func run(
 	if opts.showVersion {
 		info := deps.currentBuildInfo()
 
-		writer := versionOutput
+		writer := deps.versionWriter
 		if writer == nil {
 			writer = os.Stdout
 		}

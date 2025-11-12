@@ -214,13 +214,6 @@ func assertRunVersionPrints(t *testing.T, args []string, info buildinfo.Info) {
 
 	var stdout bytes.Buffer
 
-	original := versionOutput
-	versionOutput = &stdout
-
-	t.Cleanup(func() {
-		versionOutput = original
-	})
-
 	deps := defaultRunDeps()
 	deps.newLogger = func(string) (*zap.Logger, error) {
 		panic("newLogger should not be called when printing version")
@@ -231,6 +224,7 @@ func assertRunVersionPrints(t *testing.T, args []string, info buildinfo.Info) {
 	deps.currentBuildInfo = func() buildinfo.Info {
 		return info
 	}
+	deps.versionWriter = &stdout
 
 	exitCode := run(t.Context(), args, deps, io.Discard)
 	if exitCode != exitCodeSuccess {
