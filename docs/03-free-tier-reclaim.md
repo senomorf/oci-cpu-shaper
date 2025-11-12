@@ -20,6 +20,8 @@ The reclaim detector requires **all** three signals to stay below 20% for the en
 2. Use the Monitoring console or OCI CLI to run the seven-day P95 query.
 3. Cross-check values against the shaper’s `/metrics` endpoint to ensure internal telemetry matches Oracle’s readings.
 
+Regression coverage keeps these guardrails honest: `TestControllerCpuUtilisationAcrossOCPUs` in `pkg/adapt/controller_test.go` now replays 1–4 OCPU CpuUtilization streams and asserts the adaptive controller delivers the same targets and relaxed polling intervals when utilisation stays hot. The suite also verifies the clamp at the minimum duty cycle, aligning with the shape-agnostic behaviour and reclaim buffer documented in §§3.1 and 5.2 of the implementation plan.[^plan-ocpu]
+
 ## 3.3 Responding to reclaim notifications
 
 Oracle sends email notifications ahead of reclaim. If alerts cite low CPU utilisation:
@@ -31,3 +33,4 @@ Oracle sends email notifications ahead of reclaim. If alerts cite low CPU utilis
 Sustained reclaim warnings warrant a review of deployment knobs and monitoring data to confirm the target instance still requires Always Free capacity.
 
 [^oci-reclaim]: Oracle Cloud Infrastructure, "Always Free Resource Limits". <https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetierlimits.htm#freetierlimits__reclaim>
+[^plan-ocpu]: `docs/initial-implementation-plan.md`, §§3.1, 5.2.

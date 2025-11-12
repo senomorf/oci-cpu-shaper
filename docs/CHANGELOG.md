@@ -4,6 +4,7 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+- Regression suite `TestControllerCpuUtilisationAcrossOCPUs` covering 1–4 OCPU CpuUtilization streams and the relaxed-interval clamp so the adaptive controller keeps the Always Free reclaim guardrails documented in §§3.1 and 5.2. Tests maintain the ≥85% statement floor by exercising the prolonged high-utilisation path in `pkg/adapt/controller.go` (§11).
 - Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
 - Scheduled `self-hosted` workflow exercising IMDS lookups, live `QueryP95CPU` calls via `hack/tools/p95query`, and Docker cgroup v2 behaviour on the OCI runner (§§4, 6, 11, 15).
 - Runner maintenance and secrets rotation guidance in §15 of `docs/08-development.md`, covering patch cadence, token refresh, and repository variables linked to the new workflow (§§8, 12, 15).
