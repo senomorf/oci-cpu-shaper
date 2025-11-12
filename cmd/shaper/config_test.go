@@ -60,6 +60,48 @@ func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	)
 }
 
+func TestLoadConfigSamplesMatchDefaults(t *testing.T) {
+	t.Parallel()
+
+	defaults := adaptDefault()
+
+	samples := []struct {
+		name string
+		path string
+	}{
+		{name: "mode-a", path: filepath.Join("..", "configs", "mode-a.yaml")},
+		{name: "mode-b", path: filepath.Join("..", "configs", "mode-b.yaml")},
+	}
+
+	for _, sample := range samples {
+		t.Run(sample.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := loadConfig(sample.path)
+			if err != nil {
+				t.Fatalf("loadConfig returned error for %s: %v", sample.path, err)
+			}
+
+			assertFloatEqual(t, "goalLow", cfg.Controller.GoalLow, defaults.GoalLow)
+			assertFloatEqual(t, "goalHigh", cfg.Controller.GoalHigh, defaults.GoalHigh)
+			assertFloatEqual(
+				t,
+				"suppressThreshold",
+				cfg.Controller.SuppressThreshold,
+				defaults.SuppressThreshold,
+			)
+			assertFloatEqual(
+				t,
+				"suppressResume",
+				cfg.Controller.SuppressResume,
+				defaults.SuppressResume,
+			)
+			assertStringEqual(t, "httpBind", cfg.HTTP.Bind, ":9108")
+			assertDurationEqual(t, "estimatorInterval", cfg.Estimator.Interval, time.Second)
+		})
+	}
+}
+
 func TestLoadConfigAppliesFileOverrides(t *testing.T) {
 	t.Parallel()
 

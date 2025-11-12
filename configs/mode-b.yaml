@@ -1,0 +1,26 @@
+# Example Mode B configuration using the documented defaults.
+controller:
+  targetStart: 0.25
+  targetMin: 0.22
+  targetMax: 0.40
+  stepUp: 0.02
+  stepDown: 0.01
+  fallbackTarget: 0.25
+  goalLow: 0.23
+  goalHigh: 0.30
+  interval: 1h
+  relaxedInterval: 6h
+  relaxedThreshold: 0.28
+  suppressThreshold: 0.85
+  suppressResume: 0.70
+estimator:
+  interval: 1s
+pool:
+  workers: 4
+  quantum: 1ms
+http:
+  bind: ":9108"
+oci:
+  compartmentId: "ocid1.compartment.oc1..example"
+  region: "us-phoenix-1"
+  instanceId: "ocid1.instance.oc1..example"

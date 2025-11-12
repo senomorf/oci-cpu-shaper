@@ -7,7 +7,9 @@ OCI CPU Shaper is an emerging toolkit for shaping CPU utilization of workloads r
 - `cmd/shaper/` – Entry point for the CLI binary that applies CPU shaping logic.
 - `pkg/` – Shared packages divided into domains for metadata (`imds`), OCI integrations (`oci`), estimation (`est`), shaping algorithms (`shape`), adaptation (`adapt`), and HTTP helpers (`http`).
 - `internal/buildinfo/` – Build metadata embedded into binaries.
-- `configs/` – Example configuration files and templates.
+- `configs/` – Example configuration files and templates, including `mode-a.yaml`
+  and `mode-b.yaml` which ship the documented defaults referenced in
+  [`docs/09-cli.md`](docs/09-cli.md).
 - `deploy/` – Deployment manifests and automation assets.
 - `docs/` – Living documentation; begin with [`00-overview.md`](docs/00-overview.md).
 
