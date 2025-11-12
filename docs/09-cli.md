@@ -99,7 +99,49 @@ permanent indicator that the downgrade could not be applied.
 
 ## 9.5 Metrics Exporter
 
-- `cmd/shaper` now instantiates the lightweight OpenMetrics exporter from `pkg/http/metrics` and binds it to `/metrics` on the address supplied via `http.bind`/`HTTP_ADDR`, mirroring the observability wiring outlined in §§5.2 and 9.
-- The handler publishes controller and estimator gauges/counters—`shaper_target_ratio`, `shaper_mode`, `shaper_state`, `oci_p95`, `oci_last_success_epoch`, `duty_cycle_ms`, `worker_count`, and `host_cpu_percent`—so Prometheus scrape targets can track mode transitions, OCI freshness, worker sizing, and host contention (§§3.1, 5.2).
-- Offline mode continues to populate the exporter with synthetic data, and the CLI unit suite exercises the handler via `httptest.Server` alongside dedicated exporter tests to keep the ≥85% coverage floor intact (§11).
-- Rootless Compose stacks expose the listener through `${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108`, while the container images declare `EXPOSE 9108` so orchestrators can surface the endpoint without manual port wiring (§§6, 9).
+`cmd/shaper` instantiates the lightweight OpenMetrics exporter from `pkg/http/metrics` and serves it at `/metrics` using the `http.bind` configuration (or `HTTP_ADDR` environment override). The listener defaults to `:9108`, matching the Compose port mapping in §6 and the container `EXPOSE 9108` declaration. Production Prometheus servers can scrape the endpoint directly when the rootful stack runs in host-network mode, while rootless deployments forward `${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108` from the host loopback to the container port.
+
+### Emitted series
+
+| Metric | Type | Description |
+| ------ | ---- | ----------- |
+| `shaper_target_ratio` | gauge | Current duty-cycle target assigned to the worker pool (0.0–1.0). |
+| `shaper_mode{mode="<name>"}` | gauge | Active controller mode (`noop`, `dry-run`, or `enforce`) reported as a labelled one-hot gauge. |
+| `shaper_state{state="<name>"}` | gauge | Controller state-machine output (`normal`, `fallback`, `suppressed`, or `unknown`). |
+| `oci_p95` | gauge | Latest OCI `CpuUtilization` P95 ratio used for adaptive decisions. |
+| `oci_last_success_epoch` | counter | Unix epoch seconds when `QueryP95CPU` last succeeded (`0` while offline). |
+| `duty_cycle_ms` | gauge | Worker quantum configured for each duty-cycle interval in milliseconds. |
+| `worker_count` | gauge | Number of goroutines currently driving CPU load. |
+| `host_cpu_percent` | gauge | Most recent host CPU utilisation sample from the fast estimator loop. |
+
+### Example scrape output
+
+```
+# HELP shaper_target_ratio Target duty cycle ratio assigned to worker pool.
+# TYPE shaper_target_ratio gauge
+shaper_target_ratio 0.275000
+# HELP shaper_mode Controller operating mode (value set to 1 for the active mode).
+# TYPE shaper_mode gauge
+shaper_mode{mode="dry-run"} 1
+# HELP shaper_state Controller state machine output (value set to 1 for the active state).
+# TYPE shaper_state gauge
+shaper_state{state="fallback"} 1
+# HELP oci_p95 Last observed OCI CPU P95 ratio.
+# TYPE oci_p95 gauge
+oci_p95 0.180000
+# HELP oci_last_success_epoch Unix epoch seconds of the last successful OCI metrics query.
+# TYPE oci_last_success_epoch counter
+oci_last_success_epoch 0
+# HELP duty_cycle_ms Duty cycle quantum configured for workers (milliseconds).
+# TYPE duty_cycle_ms gauge
+duty_cycle_ms 1.000
+# HELP worker_count Number of worker goroutines consuming CPU.
+# TYPE worker_count gauge
+worker_count 4
+# HELP host_cpu_percent Last recorded host CPU utilisation percentage.
+# TYPE host_cpu_percent gauge
+host_cpu_percent 6.25
+# EOF
+```
+
+Offline mode continues to populate each series so smoke tests and container health checks can rely on the exporter without live tenancy credentials; only `oci_last_success_epoch` remains `0` until Monitoring calls succeed. Unit and CLI tests exercise the handler through `httptest.Server`, preserving the ≥85% coverage floor mandated in §11.

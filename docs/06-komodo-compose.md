@@ -32,6 +32,7 @@ Compose deployments for Mode A live in `deploy/compose/`. The rootless manifest
 
 - `SHAPER_IMAGE` – image tag (`oci-cpu-shaper:nonroot` by default).
 - `SHAPER_CONFIG_PATH` – host path to mount at `/etc/oci-cpu-shaper/config.yaml`.
+- `HTTP_ADDR` – overrides the Prometheus listener bind address (defaults to `:9108` and must match the exposed port below).
 - `SHAPER_CPU_SHARES` – defaults to `512` to align with rootless Docker engine expectations.
 - `SHAPER_MODE`/`SHAPER_LOG_LEVEL` – passed through as CLI arguments.
 
@@ -43,6 +44,10 @@ docker compose \
   --project-name oci-cpu-shaper \
   up --detach
 ```
+
+`mode-a.rootless.yaml` publishes `/metrics` via `${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108`, so Prometheus scrapes can stay on
+the host loopback while the container binds to `HTTP_ADDR` inside the sandbox. Override `SHAPER_METRICS_BIND` when collectors run
+outside the host or to expose TLS-terminating sidecars.
 
 ## §6.3 Rootful Mode B stack
 
@@ -56,8 +61,9 @@ quota. Tweak `SHAPER_CAP_SYS_NICE` or `SHAPER_CPUS` in
 `deploy/compose/mode-b.env.example` to change those defaults.
 
 The rootful stack pins `network_mode: host` so Prometheus scraping reuses the
-node’s address. Override `SHAPER_NETWORK_MODE` when a bridge network is
-preferable, and adjust `SHAPER_RESTART_POLICY` if the Docker daemon should stop
+node’s address and the container honours whatever `HTTP_ADDR` the binary is
+configured with (typically `:9108`). Override `SHAPER_NETWORK_MODE` when a
+bridge network is preferable, and adjust `SHAPER_RESTART_POLICY` if the Docker daemon should stop
 restarting the container after failures. Rootful builds compiled with
 `-tags rootful` now ask the kernel for `SCHED_IDLE` scheduling on each worker
 thread as soon as the pool starts (§6.2). The Compose manifest already grants
@@ -91,7 +97,8 @@ systemctl --user enable --now mode-b.rootful.container
 Two helper scripts under `deploy/scripts/` wrap `docker run`:
 
 - `run-rootless.sh` pins `--cpu-shares=${SHAPER_CPU_SHARES:-512}` and hardens the container with
-  read-only and `no-new-privileges` flags.
+  read-only and `no-new-privileges` flags, wiring `${HTTP_ADDR:-:9108}` through to the
+  container so the `/metrics` listener matches the published port mapping.
 - `run-rootful.sh` targets the `rootful` image, retaining the default `--cpu-shares=1024` while
   exposing optional `SHAPER_CPU_PERIOD` and `SHAPER_CPU_QUOTA` overrides for hosts that need
   stricter scheduling control.

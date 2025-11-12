@@ -21,6 +21,7 @@ The alarm should target the exact instance OCID retrieved from IMDSv2 so notific
 1. Confirm the notification topic is subscribed before enabling the alarm.
 2. Use the **Test Alarm** feature to emit a sample payload and verify downstream automation.
 3. After deployment, compare alarm history with the shaper’s `/metrics` and the `QueryP95CPU` output described in `docs/05-monitoring-mql.md` to ensure data parity.
+4. Hit the Prometheus endpoint directly (`curl -fsS ${HTTP_ADDR:-http://127.0.0.1:9108}/metrics`) and confirm the `shaper_mode`, `shaper_state`, and `oci_p95` samples line up with the alarm evaluation window; §9.5 includes a canonical scrape example.
 
 ## 7.3 Operational playbook
 

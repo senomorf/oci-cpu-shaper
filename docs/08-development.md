@@ -61,6 +61,8 @@ docker run --rm oci-cpu-shaper:test --mode dry-run --log-level debug --shutdown-
 
 After the smoke test completes, CI emits an SPDX SBOM (`sbom.spdx.json`) with Anchore's Syft action and scans the image with Anchore's Grype-based scanner, failing the job if any critical vulnerabilities are detected. Developers replicating the pipeline locally should install Docker Buildx, run the command sequence above, and review the generated reports before opening a pull request when container-affecting changes are made. The container image now ships `/etc/oci-cpu-shaper/config.yaml` with `oci.offline: true`, letting the packaged binary wire the adaptive controller using the static metrics client and fallback instance ID described in §9.2 so smoke tests succeed without IMDS or Monitoring credentials; unset `OCI_OFFLINE` or override the config when targeting real tenancy environments.
 
+Use `curl -fsS ${HTTP_ADDR:-http://127.0.0.1:9108}/metrics` (or the forwarded Compose port from §6) after the smoke test to confirm the exporter returns the series listed in §9.5. Offline runs should report `oci_last_success_epoch 0` and the synthetic `oci_p95` target, providing a quick health check before hitting live tenancy endpoints.
+
 Rootful experiments using `deploy/compose/mode-b.rootful.yaml` or the matching Quadlet unit should run on hosts where Docker/Podman can grant UID 0 and `SYS_NICE`. The Compose manifest defaults to `network_mode: host`; switch `SHAPER_NETWORK_MODE` to an isolated network when testing on shared lab hardware, and avoid running it under rootless Docker because cgroup weight, `cpus`, and capability settings will be ignored (§6.2).
 
 ## §11.2 CPU Weight Integration Suite
