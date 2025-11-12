@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,6 +71,7 @@ type runDeps struct {
 		addr string,
 		handler http.Handler,
 	) error
+	versionWriter io.Writer
 }
 
 type poolStarter interface {
@@ -156,7 +158,7 @@ func configureMetrics(
 
 // run orchestrates CLI initialization before handing execution to the controller.
 //
-//nolint:funlen // CLI wiring composes setup steps before controller execution
+//nolint:funlen,cyclop // CLI wiring composes setup steps before controller execution
 func run(
 	ctx context.Context,
 	args []string,
@@ -166,6 +168,19 @@ func run(
 	opts, err := parseArgs(args)
 	if err != nil {
 		return writeError(stderr, err, exitCodeParseError)
+	}
+
+	if opts.showVersion {
+		info := deps.currentBuildInfo()
+
+		writer := deps.versionWriter
+		if writer == nil {
+			writer = os.Stdout
+		}
+
+		_, _ = fmt.Fprintf(writer, "%+v\n", info)
+
+		return exitCodeSuccess
 	}
 
 	cfg, exitCode, configLoaded := loadRuntimeConfigOrExit(deps, opts.configPath, stderr)
@@ -324,6 +339,7 @@ type options struct {
 	logLevel      string
 	mode          string
 	shutdownAfter time.Duration
+	showVersion   bool
 }
 
 func parseArgs(args []string) (options, error) {
@@ -331,6 +347,12 @@ func parseArgs(args []string) (options, error) {
 
 	flagSet := flag.NewFlagSet("shaper", flag.ContinueOnError)
 	flagSet.SetOutput(io.Discard)
+	flagSet.BoolVar(
+		&opts.showVersion,
+		"version",
+		false,
+		"Print build information and exit",
+	)
 	flagSet.StringVar(
 		&opts.configPath,
 		"config",
@@ -359,6 +381,16 @@ func parseArgs(args []string) (options, error) {
 	err := flagSet.Parse(args)
 	if err != nil {
 		return options{}, fmt.Errorf("parse CLI arguments: %w", err)
+	}
+
+	if !opts.showVersion {
+		if slices.Contains(flagSet.Args(), "version") {
+			opts.showVersion = true
+		}
+	}
+
+	if opts.showVersion {
+		return opts, nil
 	}
 
 	normErr := normalizeOptions(&opts)

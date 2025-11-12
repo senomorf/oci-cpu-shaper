@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -38,6 +39,7 @@ func defaultRunDeps() runDeps {
 		loadConfig:         loadConfig,
 		newMetricsExporter: metricshttp.NewExporter,
 		startMetricsServer: startMetricsServer,
+		versionWriter:      os.Stdout,
 	}
 
 	deps.newLogger = func(level string) (*zap.Logger, error) {
