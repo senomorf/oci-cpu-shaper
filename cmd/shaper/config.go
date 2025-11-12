@@ -15,24 +15,26 @@ import (
 )
 
 const (
-	envTargetStart      = "SHAPER_TARGET_START"
-	envTargetMin        = "SHAPER_TARGET_MIN"
-	envTargetMax        = "SHAPER_TARGET_MAX"
-	envStepUp           = "SHAPER_STEP_UP"
-	envStepDown         = "SHAPER_STEP_DOWN"
-	envSlowInterval     = "SHAPER_SLOW_INTERVAL"
-	envRelaxedInterval  = "SHAPER_SLOW_INTERVAL_RELAXED"
-	envFastInterval     = "SHAPER_FAST_INTERVAL"
-	envPoolWorkers      = "SHAPER_WORKER_COUNT"
-	envHTTPBind         = "HTTP_ADDR"
-	envCompartmentID    = "OCI_COMPARTMENT_ID"
-	envOCIRegion        = "OCI_REGION"
-	envInstanceID       = "OCI_INSTANCE_ID"
-	envOCIOffline       = "OCI_OFFLINE"
-	envFallbackTarget   = "SHAPER_FALLBACK_TARGET"
-	envRelaxedThreshold = "SHAPER_RELAXED_THRESHOLD"
-	envGoalLow          = "SHAPER_GOAL_LOW"
-	envGoalHigh         = "SHAPER_GOAL_HIGH"
+	envTargetStart       = "SHAPER_TARGET_START"
+	envTargetMin         = "SHAPER_TARGET_MIN"
+	envTargetMax         = "SHAPER_TARGET_MAX"
+	envStepUp            = "SHAPER_STEP_UP"
+	envStepDown          = "SHAPER_STEP_DOWN"
+	envSlowInterval      = "SHAPER_SLOW_INTERVAL"
+	envRelaxedInterval   = "SHAPER_SLOW_INTERVAL_RELAXED"
+	envFastInterval      = "SHAPER_FAST_INTERVAL"
+	envPoolWorkers       = "SHAPER_WORKER_COUNT"
+	envHTTPBind          = "HTTP_ADDR"
+	envCompartmentID     = "OCI_COMPARTMENT_ID"
+	envOCIRegion         = "OCI_REGION"
+	envInstanceID        = "OCI_INSTANCE_ID"
+	envOCIOffline        = "OCI_OFFLINE"
+	envFallbackTarget    = "SHAPER_FALLBACK_TARGET"
+	envRelaxedThreshold  = "SHAPER_RELAXED_THRESHOLD"
+	envGoalLow           = "SHAPER_GOAL_LOW"
+	envGoalHigh          = "SHAPER_GOAL_HIGH"
+	envSuppressThreshold = "SHAPER_SUPPRESS_THRESHOLD"
+	envSuppressResume    = "SHAPER_SUPPRESS_RESUME"
 )
 
 type runtimeConfig struct {
@@ -44,17 +46,19 @@ type runtimeConfig struct {
 }
 
 type controllerConfig struct {
-	TargetStart      float64
-	TargetMin        float64
-	TargetMax        float64
-	StepUp           float64
-	StepDown         float64
-	FallbackTarget   float64
-	GoalLow          float64
-	GoalHigh         float64
-	Interval         time.Duration
-	RelaxedInterval  time.Duration
-	RelaxedThreshold float64
+	TargetStart       float64
+	TargetMin         float64
+	TargetMax         float64
+	StepUp            float64
+	StepDown          float64
+	FallbackTarget    float64
+	GoalLow           float64
+	GoalHigh          float64
+	Interval          time.Duration
+	RelaxedInterval   time.Duration
+	RelaxedThreshold  float64
+	SuppressThreshold float64
+	SuppressResume    float64
 }
 
 type estimatorConfig struct {
@@ -86,17 +90,19 @@ type fileConfig struct {
 }
 
 type controllerFileConfig struct {
-	TargetStart      *float64       `yaml:"targetStart"`
-	TargetMin        *float64       `yaml:"targetMin"`
-	TargetMax        *float64       `yaml:"targetMax"`
-	StepUp           *float64       `yaml:"stepUp"`
-	StepDown         *float64       `yaml:"stepDown"`
-	FallbackTarget   *float64       `yaml:"fallbackTarget"`
-	GoalLow          *float64       `yaml:"goalLow"`
-	GoalHigh         *float64       `yaml:"goalHigh"`
-	Interval         *time.Duration `yaml:"interval"`
-	RelaxedInterval  *time.Duration `yaml:"relaxedInterval"`
-	RelaxedThreshold *float64       `yaml:"relaxedThreshold"`
+	TargetStart       *float64       `yaml:"targetStart"`
+	TargetMin         *float64       `yaml:"targetMin"`
+	TargetMax         *float64       `yaml:"targetMax"`
+	StepUp            *float64       `yaml:"stepUp"`
+	StepDown          *float64       `yaml:"stepDown"`
+	FallbackTarget    *float64       `yaml:"fallbackTarget"`
+	GoalLow           *float64       `yaml:"goalLow"`
+	GoalHigh          *float64       `yaml:"goalHigh"`
+	Interval          *time.Duration `yaml:"interval"`
+	RelaxedInterval   *time.Duration `yaml:"relaxedInterval"`
+	RelaxedThreshold  *float64       `yaml:"relaxedThreshold"`
+	SuppressThreshold *float64       `yaml:"suppressThreshold"`
+	SuppressResume    *float64       `yaml:"suppressResume"`
 }
 
 type estimatorFileConfig struct {
@@ -135,6 +141,8 @@ func defaultRuntimeConfig() runtimeConfig {
 	cfg.Controller.Interval = defaults.Interval
 	cfg.Controller.RelaxedInterval = defaults.RelaxedInterval
 	cfg.Controller.RelaxedThreshold = defaults.RelaxedThreshold
+	cfg.Controller.SuppressThreshold = defaults.SuppressThreshold
+	cfg.Controller.SuppressResume = defaults.SuppressResume
 
 	cfg.Estimator.Interval = time.Second
 
@@ -197,6 +205,8 @@ func mergeControllerConfig(dst *controllerConfig, src controllerFileConfig) {
 	assignDuration(&dst.Interval, src.Interval)
 	assignDuration(&dst.RelaxedInterval, src.RelaxedInterval)
 	assignFloat(&dst.RelaxedThreshold, src.RelaxedThreshold)
+	assignFloat(&dst.SuppressThreshold, src.SuppressThreshold)
+	assignFloat(&dst.SuppressResume, src.SuppressResume)
 }
 
 func mergeEstimatorConfig(dst *estimatorConfig, src estimatorFileConfig) {
@@ -229,6 +239,11 @@ func applyEnvOverrides(cfg *runtimeConfig) {
 	cfg.Controller.GoalLow = envFloat(envGoalLow, cfg.Controller.GoalLow)
 	cfg.Controller.GoalHigh = envFloat(envGoalHigh, cfg.Controller.GoalHigh)
 	cfg.Controller.RelaxedThreshold = envFloat(envRelaxedThreshold, cfg.Controller.RelaxedThreshold)
+	cfg.Controller.SuppressThreshold = envFloat(
+		envSuppressThreshold,
+		cfg.Controller.SuppressThreshold,
+	)
+	cfg.Controller.SuppressResume = envFloat(envSuppressResume, cfg.Controller.SuppressResume)
 	cfg.Controller.Interval = envDuration(envSlowInterval, cfg.Controller.Interval)
 	cfg.Controller.RelaxedInterval = envDuration(envRelaxedInterval, cfg.Controller.RelaxedInterval)
 	cfg.Estimator.Interval = envDuration(envFastInterval, cfg.Estimator.Interval)

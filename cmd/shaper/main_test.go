@@ -805,10 +805,13 @@ func TestLogIMDSMetadataEmitsDetails(t *testing.T) {
 
 	ctrl := new(stubController)
 	ctrl.mode = modeDryRun
+	ctrl.state = adapt.StateSuppressed
 
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", "", "", false)
 
 	entry := requireSingleDebugEntry(t, observed)
+	requireLogFieldString(t, entry, "controllerMode", modeDryRun)
+	requireLogFieldString(t, entry, "controllerState", adapt.StateSuppressed.String())
 	requireLogFieldString(t, entry, "region", stubRegion)
 	requireLogFieldString(t, entry, "canonicalRegion", stubRegion)
 	requireLogFieldString(t, entry, "instanceID", "ocid1.instance.oc1..exampleuniqueID")
@@ -838,6 +841,7 @@ func TestLogIMDSMetadataWarnsOnFailures(t *testing.T) {
 
 	ctrl := new(stubController)
 	ctrl.mode = modeNoop
+	ctrl.state = adapt.StateFallback
 
 	logIMDSMetadata(context.Background(), logger, client, ctrl, "", "", "", false)
 
@@ -868,6 +872,7 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 
 	ctrl := new(stubController)
 	ctrl.mode = modeDryRun
+	ctrl.state = adapt.StateNormal
 
 	logIMDSMetadata(
 		context.Background(),
@@ -880,25 +885,10 @@ func TestLogIMDSMetadataUsesOverrideInstanceID(t *testing.T) {
 		false,
 	)
 
-	if client.instanceCalls != 0 {
-		t.Fatalf(
-			"expected override to skip IMDS instance lookup, got %d calls",
-			client.instanceCalls,
-		)
-	}
-
-	if client.canonicalRegionCalls != 0 {
-		t.Fatalf(
-			"expected override to skip canonical region lookup, got %d",
-			client.canonicalRegionCalls,
-		)
-	}
-
-	if client.compartmentCalls != 0 {
-		t.Fatalf("expected override to skip compartment lookup, got %d", client.compartmentCalls)
-	}
+	requireOverrideIMDSLookups(t, client)
 
 	entry := requireSingleDebugEntry(t, observed)
+	requireLogFieldString(t, entry, "controllerState", adapt.StateNormal.String())
 	requireLogFieldString(t, entry, "instanceID", "ocid1.instance.oc1..override")
 	requireLogFieldString(t, entry, "canonicalRegion", "us-chicago-1")
 	requireLogFieldString(t, entry, "compartmentID", stubCompartmentID)
@@ -922,6 +912,7 @@ func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
 		runCalled:   false,
 		deadline:    time.Time{},
 		deadlineSet: false,
+		state:       adapt.StateNormal,
 	}
 
 	logIMDSMetadata(
@@ -1234,6 +1225,7 @@ type stubController struct {
 	runCalled   bool
 	deadline    time.Time
 	deadlineSet bool
+	state       adapt.State
 }
 
 func (c *stubController) Run(ctx context.Context) error {
@@ -1252,6 +1244,14 @@ func (c *stubController) Run(ctx context.Context) error {
 
 func (c *stubController) Mode() string {
 	return c.mode
+}
+
+func (c *stubController) State() adapt.State {
+	if c.state == 0 {
+		return adapt.StateNormal
+	}
+
+	return c.state
 }
 
 func fieldString(fields []zap.Field, key string) string {
@@ -1540,6 +1540,28 @@ func assertNoIMDSCalls(t *testing.T, client *stubIMDSClient) {
 	}
 }
 
+func requireOverrideIMDSLookups(t *testing.T, client *stubIMDSClient) {
+	t.Helper()
+
+	if client.instanceCalls != 0 {
+		t.Fatalf(
+			"expected override to skip IMDS instance lookup, got %d calls",
+			client.instanceCalls,
+		)
+	}
+
+	if client.canonicalRegionCalls != 0 {
+		t.Fatalf(
+			"expected override to skip canonical region lookup, got %d",
+			client.canonicalRegionCalls,
+		)
+	}
+
+	if client.compartmentCalls != 0 {
+		t.Fatalf("expected override to skip compartment lookup, got %d", client.compartmentCalls)
+	}
+}
+
 func assertOfflineLog(t *testing.T, observed *observer.ObservedLogs, expectedID string) {
 	t.Helper()
 
@@ -1555,6 +1577,10 @@ func assertOfflineLog(t *testing.T, observed *observer.ObservedLogs, expectedID 
 	entry := entries[0]
 	if got := fieldString(entry.Context, "instanceID"); got != expectedID {
 		t.Fatalf("expected trimmed override instance id, got %q", got)
+	}
+
+	if got := fieldString(entry.Context, "controllerState"); got != adapt.StateNormal.String() {
+		t.Fatalf("expected controller state %q, got %q", adapt.StateNormal.String(), got)
 	}
 
 	offline, ok := fieldBool(entry.Context, "offline")

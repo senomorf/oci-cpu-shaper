@@ -8,6 +8,8 @@ controller:
   interval: 30m
   relaxedInterval: 4h
   relaxedThreshold: 0.27
+  suppressThreshold: 0.9
+  suppressResume: 0.6
 estimator:
   interval: 2s
 pool:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,29 @@ const (
 	StateNormal State = iota
 	// StateFallback is entered when OCI metrics are unavailable.
 	StateFallback
+	// StateSuppressed is entered when the fast estimator detects host contention.
+	StateSuppressed
 )
+
+// String implements fmt.Stringer for State values.
+func (s State) String() string {
+	switch s {
+	case StateNormal:
+		return "normal"
+	case StateFallback:
+		return "fallback"
+	case StateSuppressed:
+		return "suppressed"
+	default:
+		return "unknown"
+	}
+}
 
 // Controller represents the adaptive control loop surface.
 type Controller interface {
 	Run(ctx context.Context) error
 	Mode() string
+	State() State
 }
 
 // DutyCycler is implemented by the shape worker pool.
@@ -41,19 +59,21 @@ type Estimator interface {
 
 // Config defines controller thresholds.
 type Config struct {
-	ResourceID       string
-	Mode             string
-	TargetStart      float64
-	TargetMin        float64
-	TargetMax        float64
-	StepUp           float64
-	StepDown         float64
-	FallbackTarget   float64
-	GoalLow          float64
-	GoalHigh         float64
-	Interval         time.Duration
-	RelaxedInterval  time.Duration
-	RelaxedThreshold float64
+	ResourceID        string
+	Mode              string
+	TargetStart       float64
+	TargetMin         float64
+	TargetMax         float64
+	StepUp            float64
+	StepDown          float64
+	FallbackTarget    float64
+	GoalLow           float64
+	GoalHigh          float64
+	Interval          time.Duration
+	RelaxedInterval   time.Duration
+	RelaxedThreshold  float64
+	SuppressThreshold float64
+	SuppressResume    float64
 }
 
 // DefaultConfig mirrors the initial implementation plan for control loop cadence.
@@ -69,23 +89,29 @@ const (
 	defaultGoalHigh        = 0.30
 	defaultRelaxedInterval = 6 * time.Hour
 	defaultRelaxedThresh   = 0.28
+	defaultSuppressThresh  = 0.85
+	defaultSuppressResume  = 0.70
+	hostLoadSmoothing      = 5
+	suppressResumeScale    = 0.8
 )
 
 func DefaultConfig() Config {
 	return Config{
-		ResourceID:       "",
-		Mode:             defaultModeLabel,
-		TargetStart:      defaultTargetStart,
-		TargetMin:        defaultTargetMin,
-		TargetMax:        defaultTargetMax,
-		StepUp:           defaultStepUp,
-		StepDown:         defaultStepDown,
-		FallbackTarget:   defaultFallbackTarget,
-		GoalLow:          defaultGoalLow,
-		GoalHigh:         defaultGoalHigh,
-		Interval:         time.Hour,
-		RelaxedInterval:  defaultRelaxedInterval,
-		RelaxedThreshold: defaultRelaxedThresh,
+		ResourceID:        "",
+		Mode:              defaultModeLabel,
+		TargetStart:       defaultTargetStart,
+		TargetMin:         defaultTargetMin,
+		TargetMax:         defaultTargetMax,
+		StepUp:            defaultStepUp,
+		StepDown:          defaultStepDown,
+		FallbackTarget:    defaultFallbackTarget,
+		GoalLow:           defaultGoalLow,
+		GoalHigh:          defaultGoalHigh,
+		Interval:          time.Hour,
+		RelaxedInterval:   defaultRelaxedInterval,
+		RelaxedThreshold:  defaultRelaxedThresh,
+		SuppressThreshold: defaultSuppressThresh,
+		SuppressResume:    defaultSuppressResume,
 	}
 }
 
@@ -101,13 +127,18 @@ type AdaptiveController struct {
 	shaper    DutyCycler
 	estimator Estimator
 
-	mu       sync.Mutex
-	state    State
-	target   float64
-	lastP95  float64
-	lastErr  error
-	interval time.Duration
-	mode     string
+	mu         sync.Mutex
+	state      State
+	slowState  State
+	suppressed bool
+	target     float64
+	desired    float64
+	lastP95    float64
+	lastErr    error
+	lastEstErr error
+	hostLoad   float64
+	interval   time.Duration
+	mode       string
 }
 
 var _ Controller = (*AdaptiveController)(nil)
@@ -135,7 +166,9 @@ func NewAdaptiveController(
 	controller.shaper = shaper
 	controller.estimator = estimator
 	controller.state = StateFallback
+	controller.slowState = StateFallback
 	controller.target = normalized.FallbackTarget
+	controller.desired = normalized.FallbackTarget
 	controller.interval = normalized.Interval
 	controller.mode = mode
 
@@ -203,6 +236,14 @@ func (c *AdaptiveController) LastP95() float64 {
 	return c.lastP95
 }
 
+// LastEstimatorError returns the last observation error from the fast estimator loop.
+func (c *AdaptiveController) LastEstimatorError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.lastEstErr
+}
+
 // Mode returns the configured controller mode label.
 func (c *AdaptiveController) Mode() string {
 	c.mu.Lock()
@@ -216,12 +257,74 @@ func (c *AdaptiveController) consumeEstimator(ctx context.Context, ch <-chan est
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-ch:
+		case observation, ok := <-ch:
 			if !ok {
 				return
 			}
-			// Host CPU observations are currently used for telemetry only.
+
+			c.handleObservation(observation)
 		}
+	}
+}
+
+func (c *AdaptiveController) handleObservation(observation est.Observation) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if observation.Err != nil {
+		c.lastEstErr = observation.Err
+		c.updateEffectiveStateLocked()
+
+		return
+	}
+
+	c.lastEstErr = nil
+
+	if c.cfg.SuppressThreshold <= 0 {
+		return
+	}
+
+	utilisation := clamp(observation.Utilisation, 0, 1)
+	c.updateHostLoadLocked(utilisation)
+	previouslySuppressed := c.transitionSuppressionLocked()
+	c.applySuppressionTargetsLocked(previouslySuppressed)
+	c.updateEffectiveStateLocked()
+}
+
+func (c *AdaptiveController) updateHostLoadLocked(utilisation float64) {
+	if c.hostLoad == 0 {
+		c.hostLoad = utilisation
+
+		return
+	}
+
+	c.hostLoad += (utilisation - c.hostLoad) / float64(hostLoadSmoothing)
+}
+
+func (c *AdaptiveController) transitionSuppressionLocked() bool {
+	previous := c.suppressed
+
+	if !c.suppressed && c.hostLoad >= c.cfg.SuppressThreshold {
+		c.suppressed = true
+	} else if c.suppressed && c.hostLoad <= c.cfg.SuppressResume {
+		c.suppressed = false
+	}
+
+	return previous
+}
+
+func (c *AdaptiveController) applySuppressionTargetsLocked(previouslySuppressed bool) {
+	switch {
+	case c.suppressed:
+		c.applyTargetLocked(0)
+	case previouslySuppressed:
+		restore := c.desired
+		if restore == 0 {
+			restore = c.cfg.TargetStart
+		}
+
+		restore = clamp(restore, c.cfg.TargetMin, c.cfg.TargetMax)
+		c.applyTargetLocked(restore)
 	}
 }
 
@@ -232,19 +335,29 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 	defer c.mu.Unlock()
 
 	if err != nil {
-		c.state = StateFallback
+		c.slowState = StateFallback
 		c.lastErr = err
-		c.target = clamp(c.cfg.FallbackTarget, c.cfg.TargetMin, c.cfg.TargetMax)
-		c.shaper.SetTarget(c.target)
+		fallback := clamp(c.cfg.FallbackTarget, c.cfg.TargetMin, c.cfg.TargetMax)
+
+		c.desired = fallback
+		if !c.suppressed {
+			c.applyTargetLocked(fallback)
+		}
+
+		c.updateEffectiveStateLocked()
 
 		return c.cfg.Interval
 	}
 
-	c.state = StateNormal
+	c.slowState = StateNormal
 	c.lastErr = nil
 	c.lastP95 = p95
 
 	nextTarget := c.target
+	if c.suppressed {
+		nextTarget = c.desired
+	}
+
 	if nextTarget == 0 {
 		nextTarget = c.cfg.TargetStart
 	}
@@ -256,14 +369,34 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 	}
 
 	nextTarget = clamp(nextTarget, c.cfg.TargetMin, c.cfg.TargetMax)
-	c.target = nextTarget
-	c.shaper.SetTarget(nextTarget)
+
+	c.desired = nextTarget
+	if !c.suppressed {
+		c.applyTargetLocked(nextTarget)
+	}
+
+	c.updateEffectiveStateLocked()
 
 	if p95 >= c.cfg.RelaxedThreshold {
 		return c.cfg.RelaxedInterval
 	}
 
 	return c.cfg.Interval
+}
+
+func (c *AdaptiveController) applyTargetLocked(target float64) {
+	c.target = target
+	c.shaper.SetTarget(target)
+}
+
+func (c *AdaptiveController) updateEffectiveStateLocked() {
+	if c.suppressed {
+		c.state = StateSuppressed
+
+		return
+	}
+
+	c.state = c.slowState
 }
 
 func clamp(value, lower, upper float64) float64 {
@@ -301,6 +434,9 @@ func (n *NoopController) Run(context.Context) error { return nil }
 // Mode implements the Controller interface.
 func (n *NoopController) Mode() string { return n.mode }
 
+// State implements the Controller interface.
+func (n *NoopController) State() State { return StateNormal }
+
 func normalizeConfig(cfg Config) (Config, string) {
 	defaults := DefaultConfig()
 
@@ -315,6 +451,15 @@ func normalizeConfig(cfg Config) (Config, string) {
 	cfg.GoalLow = ensureFloat(cfg.GoalLow, defaults.GoalLow)
 	cfg.GoalHigh = ensureFloat(cfg.GoalHigh, defaults.GoalHigh)
 	cfg.RelaxedThreshold = ensureFloat(cfg.RelaxedThreshold, defaults.RelaxedThreshold)
+	cfg.SuppressThreshold = ensureFloat(cfg.SuppressThreshold, defaults.SuppressThreshold)
+	cfg.SuppressResume = ensureFloat(cfg.SuppressResume, defaults.SuppressResume)
+
+	cfg.SuppressThreshold = clamp(cfg.SuppressThreshold, 0, 1)
+	cfg.SuppressResume = clamp(cfg.SuppressResume, 0, 1)
+
+	if cfg.SuppressResume >= cfg.SuppressThreshold && cfg.SuppressThreshold > 0 {
+		cfg.SuppressResume = math.Max(cfg.SuppressThreshold*suppressResumeScale, 0)
+	}
 
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {

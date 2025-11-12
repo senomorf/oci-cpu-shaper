@@ -34,6 +34,8 @@ controller:
   interval: 1h
   relaxedInterval: 6h
   relaxedThreshold: 0.28
+  suppressThreshold: 0.85
+  suppressResume: 0.70
 estimator:
   interval: 1s
 pool:
@@ -47,7 +49,7 @@ oci:
   instanceId: "ocid1.instance.oc1..example"
 ```
 
-- `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy.
+- `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy. The fast-loop suppression settings (`suppressThreshold`, `suppressResume`) decide when estimator-driven contention drops the worker pool to zero and when work resumes after the host cools.
 - `estimator.interval` controls the fast `/proc/stat` sampler cadence (§5.2) while the worker `pool` exposes quantum sizing that stays within the 1–5 ms duty-cycle budget.
 - `http.bind` retains the Prometheus listener address, and `oci.compartmentId` supplies the tenancy scope required by the Monitoring client while `oci.region` pins the Monitoring endpoint region when IMDS access is unavailable (for example, CI smoke tests).
 - `oci.instanceId` is optional and lets operators bypass IMDS lookups when metadata access is blocked (for example, CI smoke tests or staging environments without instance principals). When `oci.offline` is set the CLI injects a static metrics client and fallback instance ID so dry-run/enforce can exercise the adaptive controller without IMDS or Monitoring access (§§5.2, 11).
@@ -68,6 +70,7 @@ The CLI honours the following environment variables, matching the naming in §5.
 | `SHAPER_FALLBACK_TARGET` | Fixed target while OCI metrics are unavailable. | `0.25` |
 | `SHAPER_SLOW_INTERVAL` / `SHAPER_SLOW_INTERVAL_RELAXED` | Baseline and relaxed controller cadences. | `1h` / `6h` |
 | `SHAPER_FAST_INTERVAL` | Host CPU sampling cadence for the estimator. | `1s` |
+| `SHAPER_SUPPRESS_THRESHOLD` / `SHAPER_SUPPRESS_RESUME` | Fast-loop suppression thresholds that gate the zero-target mode. | `0.85` / `0.70` |
 | `SHAPER_WORKER_COUNT` | Number of duty-cycle workers (`>=1`). | `runtime.NumCPU()` |
 | `HTTP_ADDR` | Prometheus listener bind address. | `:9108` |
 | `OCI_COMPARTMENT_ID` | Tenancy scope for OCI Monitoring API calls. | *(required for enforce/dry-run unless offline mode is enabled)* |
@@ -79,7 +82,7 @@ Unset or malformed overrides fall back to the defaults shown above.
 
 ## 9.4 Diagnostics
 
-At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo`, the resolved OCI compartment/region pair, and the selected mode. When the shutdown timer is enabled the log also captures the requested duration so operators can confirm the controller will terminate automatically. This gives operators immediate confirmation of the version, Git commit, configuration path, tenancy metadata, and lifecycle expectations before any controllers mutate system state.
+At startup the binary emits a structured log line containing build metadata derived from `internal/buildinfo`, the resolved OCI compartment/region pair, and the selected mode. The log now also includes `controllerState`, allowing operators to see whether the fast-loop suppression is active when the process initialises. When the shutdown timer is enabled the log also captures the requested duration so operators can confirm the controller will terminate automatically. This gives operators immediate confirmation of the version, Git commit, configuration path, tenancy metadata, suppression status, and lifecycle expectations before any controllers mutate system state.
 
 Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, unsupported log levels report a structured error before the logger is constructed, and negative `--shutdown-after` durations are rejected. This keeps early runs predictable while new policy engines are still being prototyped.
 
