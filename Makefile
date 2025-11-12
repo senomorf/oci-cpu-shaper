@@ -29,7 +29,7 @@ GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck integration
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck integration e2e
 
 tools: ensure-golangci-lint ensure-gofumpt
 
@@ -75,7 +75,7 @@ test:
 	@if [ -z "$(strip $(PKGS))" ]; then \
 		echo "No Go packages found; skipping tests."; \
 	else \
-		mkdir -p "$(GOCACHE_DIR)"; \
+	mkdir -p "$(GOCACHE_DIR)"; \
 		GOCACHE="$(GOCACHE_DIR)" $(GO) test -race $(PKGS); \
 	fi
 
@@ -151,3 +151,11 @@ integration:
 	trap 'cleanup' EXIT; \
 	touch "$$log_file"; \
 	$(GO) test -tags=integration -v ./tests/integration/... | tee "$$log_file"
+e2e:
+	@set -euo pipefail; \
+	if [ ! -d "$(ROOT_DIR)/tests/e2e" ]; then \
+		echo "e2e suite not available"; \
+		exit 0; \
+	fi; \
+	mkdir -p "$(GOCACHE_DIR)"; \
+	GOCACHE="$(GOCACHE_DIR)" $(GO) test -tags=e2e -v ./tests/e2e/...
