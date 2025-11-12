@@ -127,6 +127,8 @@ func DefaultConfig() Config {
 var (
 	errMetricsClientRequired = errors.New("adapt: metrics client is required")
 	errDutyCyclerRequired    = errors.New("adapt: duty cycler is required")
+	// ErrInvalidConfig signals that the supplied controller configuration is invalid.
+	ErrInvalidConfig = errors.New("adapt: invalid config")
 )
 
 // AdaptiveController orchestrates the normal/fallback state machine.
@@ -169,7 +171,10 @@ func NewAdaptiveController(
 		return nil, errDutyCyclerRequired
 	}
 
-	normalized, mode := normalizeConfig(cfg)
+	normalized, mode, err := normalizeConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	controller := new(AdaptiveController)
 	controller.cfg = normalized
@@ -473,7 +478,25 @@ func (n *NoopController) Mode() string { return n.mode }
 // State implements the Controller interface.
 func (n *NoopController) State() State { return StateNormal }
 
-func normalizeConfig(cfg Config) (Config, string) {
+func normalizeConfig(cfg Config) (Config, string, error) {
+	normalized, mode := coerceConfig(cfg)
+
+	err := validateControllerConfig(normalized)
+	if err != nil {
+		return Config{}, "", err
+	}
+
+	return normalized, mode, nil
+}
+
+// ValidateConfig ensures controller thresholds are internally consistent.
+func ValidateConfig(cfg Config) error {
+	normalized, _ := coerceConfig(cfg)
+
+	return validateControllerConfig(normalized)
+}
+
+func coerceConfig(cfg Config) (Config, string) {
 	defaults := DefaultConfig()
 
 	cfg.Interval = ensureDuration(cfg.Interval, defaults.Interval)
@@ -503,6 +526,44 @@ func normalizeConfig(cfg Config) (Config, string) {
 	}
 
 	return cfg, mode
+}
+
+func validateControllerConfig(cfg Config) error {
+	thresholds := []struct {
+		name  string
+		value float64
+	}{
+		{"controller.targetStart", cfg.TargetStart},
+		{"controller.targetMin", cfg.TargetMin},
+		{"controller.targetMax", cfg.TargetMax},
+		{"controller.fallbackTarget", cfg.FallbackTarget},
+		{"controller.goalLow", cfg.GoalLow},
+		{"controller.goalHigh", cfg.GoalHigh},
+	}
+
+	for _, threshold := range thresholds {
+		if cfg.SuppressThreshold <= threshold.value {
+			return fmt.Errorf(
+				"%w: controller.suppressThreshold (%.2f) must be greater than %s (%.2f)",
+				ErrInvalidConfig,
+				cfg.SuppressThreshold,
+				threshold.name,
+				threshold.value,
+			)
+		}
+
+		if cfg.SuppressResume <= threshold.value {
+			return fmt.Errorf(
+				"%w: controller.suppressResume (%.2f) must be greater than %s (%.2f)",
+				ErrInvalidConfig,
+				cfg.SuppressResume,
+				threshold.name,
+				threshold.value,
+			)
+		}
+	}
+
+	return nil
 }
 
 func ensureDuration(value, fallback time.Duration) time.Duration {

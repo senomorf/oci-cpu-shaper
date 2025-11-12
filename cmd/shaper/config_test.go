@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,6 +140,67 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	assertStringEqual(t, "region", cfg.OCI.Region, testRegionOverride)
 	assertStringEqual(t, "instanceID", cfg.OCI.InstanceID, "ocid1.instance.oc1..override")
 	assertBoolEqual(t, "offline", cfg.OCI.Offline, true)
+}
+
+func TestLoadConfigRejectsTargetsExceedingSuppressThreshold(t *testing.T) {
+	t.Setenv(envSuppressThreshold, "0.35")
+	t.Setenv(envSuppressResume, "0.34")
+
+	_, err := loadConfig("")
+	if err == nil {
+		t.Fatal("expected validation error when suppressThreshold is below target values")
+	}
+
+	if !errors.Is(err, adapt.ErrInvalidConfig) {
+		t.Fatalf("expected adapt.ErrInvalidConfig, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "controller.targetMax") {
+		t.Fatalf("expected error to reference controller.targetMax, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsTargetsExceedingSuppressResume(t *testing.T) {
+	t.Setenv(envSuppressResume, "0.10")
+
+	_, err := loadConfig("")
+	if err == nil {
+		t.Fatal("expected validation error when suppressResume is below target values")
+	}
+
+	if !errors.Is(err, adapt.ErrInvalidConfig) {
+		t.Fatalf("expected adapt.ErrInvalidConfig, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), "controller.targetStart") {
+		t.Fatalf("expected error to reference controller.targetStart, got %v", err)
+	}
+}
+
+func TestLoadRuntimeConfigOrExitReturnsParseCodeOnValidationError(t *testing.T) {
+	t.Parallel()
+
+	var deps runDeps
+
+	deps.loadConfig = func(string) (runtimeConfig, error) {
+		return runtimeConfig{}, fmt.Errorf("wrap: %w", adapt.ErrInvalidConfig)
+	}
+
+	var stderr bytes.Buffer
+
+	_, exitCode, loaded := loadRuntimeConfigOrExit(deps, "", &stderr)
+	if loaded {
+		t.Fatal("expected loadRuntimeConfigOrExit to report failure")
+	}
+
+	if exitCode != exitCodeParseError {
+		t.Fatalf("expected parse error exit code %d, got %d", exitCodeParseError, exitCode)
+	}
+
+	output := stderr.String()
+	if !strings.Contains(output, "failed to load configuration") {
+		t.Fatalf("expected diagnostic output, got %q", output)
+	}
 }
 
 //nolint:paralleltest // manipulates shared lookupEnv globally
