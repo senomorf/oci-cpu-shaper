@@ -60,7 +60,7 @@ type runDeps struct {
 
 type poolStarter interface {
 	Start(ctx context.Context)
-	SetWorkerStartErrorHandler(func(error))
+	SetWorkerStartErrorHandler(handler func(err error))
 }
 
 type metricsClientFactory func(compartmentID, region string) (oci.MetricsClient, error)
@@ -109,7 +109,15 @@ func defaultRunDeps() runDeps {
 	}
 }
 
-func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
+// run orchestrates CLI initialization before handing execution to the controller.
+//
+//nolint:funlen // CLI wiring composes setup steps before controller execution
+func run(
+	ctx context.Context,
+	args []string,
+	deps runDeps,
+	stderr io.Writer,
+) int {
 	opts, err := parseArgs(args)
 	if err != nil {
 		return writeError(stderr, err, exitCodeParseError)

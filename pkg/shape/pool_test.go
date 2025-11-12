@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var errTestSchedIdleDenied = errors.New("sched idle denied")
+
 func TestPoolAppliesDutyCycle(t *testing.T) {
 	t.Parallel()
 
@@ -153,14 +155,17 @@ func TestPoolWorkerStartHookSuccess(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var hookCount atomic.Int32
-	var handlerCount atomic.Int32
-	var wg sync.WaitGroup
-	wg.Add(workers)
+	var (
+		hookCount        atomic.Int32
+		handlerCount     atomic.Int32
+		workerStartGroup sync.WaitGroup
+	)
+
+	workerStartGroup.Add(workers)
 
 	pool.workerStartHook = func() error {
 		hookCount.Add(1)
-		wg.Done()
+		workerStartGroup.Done()
 
 		return nil
 	}
@@ -176,8 +181,9 @@ func TestPoolWorkerStartHookSuccess(t *testing.T) {
 	pool.Start(ctx)
 
 	done := make(chan struct{})
+
 	go func() {
-		wg.Wait()
+		workerStartGroup.Wait()
 		close(done)
 	}()
 
@@ -199,6 +205,7 @@ func TestPoolWorkerStartHookSuccess(t *testing.T) {
 	}
 }
 
+//nolint:funlen // integration-style test ensures handler runs per worker
 func TestPoolWorkerStartHookErrorPropagates(t *testing.T) {
 	t.Parallel()
 
@@ -209,20 +216,26 @@ func TestPoolWorkerStartHookErrorPropagates(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var hookCount atomic.Int32
-	var handlerCount atomic.Int32
-	hookErr := errors.New("sched idle denied")
+	var (
+		hookCount    atomic.Int32
+		handlerCount atomic.Int32
+	)
+
+	hookErr := errTestSchedIdleDenied
+
 	var handlerWG sync.WaitGroup
 	handlerWG.Add(workers)
 
 	pool.workerStartHook = func() error {
 		hookCount.Add(1)
+
 		return hookErr
 	}
 	pool.workerStartErrorHandler = func(err error) {
 		if !errors.Is(err, hookErr) {
 			t.Errorf("unexpected error propagated: %v", err)
 		}
+
 		handlerCount.Add(1)
 		handlerWG.Done()
 	}
@@ -235,6 +248,7 @@ func TestPoolWorkerStartHookErrorPropagates(t *testing.T) {
 	pool.Start(ctx)
 
 	done := make(chan struct{})
+
 	go func() {
 		handlerWG.Wait()
 		close(done)

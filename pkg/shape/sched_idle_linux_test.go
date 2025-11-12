@@ -24,7 +24,7 @@ func TestTrySchedIdleSuccess(t *testing.T) {
 
 	var called bool
 	schedSetSchedulerMu.Lock()
-	schedSetScheduler = func(pid int, policy int, param *schedParam) error {
+	schedSetScheduler = func(pid int, policy int, param *unix.SchedParam) error {
 		called = true
 
 		if pid != 0 {
@@ -66,7 +66,7 @@ func TestTrySchedIdleEPERM(t *testing.T) {
 	})
 
 	schedSetSchedulerMu.Lock()
-	schedSetScheduler = func(int, int, *schedParam) error {
+	schedSetScheduler = func(int, int, *unix.SchedParam) error {
 		return unix.EPERM
 	}
 	schedSetSchedulerMu.Unlock()
