@@ -39,6 +39,7 @@ const (
 	stubRegion        = "us-ashburn-1"
 	imdsAuthHeaderKey = "Authorization"
 	imdsAuthHeaderVal = "Bearer Oracle"
+	metricsServerWait = time.Second
 )
 
 func TestParseArgsDefaults(t *testing.T) {
@@ -182,6 +183,7 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 	}
 }
 
+//nolint:funlen // integration-style test exercises end-to-end wiring.
 func TestRunSuccessfulPath(t *testing.T) {
 	t.Parallel()
 
@@ -205,12 +207,16 @@ func TestRunSuccessfulPath(t *testing.T) {
 	pool := new(stubPoolStarter)
 
 	deps.loadConfig = loadConfigStub()
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
 
 	deps.newController = func(
 		ctx context.Context,
 		mode string,
 		cfg runtimeConfig,
 		imdsClient imds.Client,
+		_ adapt.MetricsRecorder,
 	) (adapt.Controller, poolStarter, error) {
 		_ = ctx
 		_ = cfg
@@ -263,6 +269,9 @@ func TestRunAppliesShutdownAfter(t *testing.T) {
 		return logger, nil
 	}
 	deps.loadConfig = loadConfigStub()
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
 
 	ctrl := new(stubController)
 
@@ -271,6 +280,7 @@ func TestRunAppliesShutdownAfter(t *testing.T) {
 		mode string,
 		cfg runtimeConfig,
 		imdsClient imds.Client,
+		_ adapt.MetricsRecorder,
 	) (adapt.Controller, poolStarter, error) {
 		_ = cfg
 		_ = imdsClient
@@ -392,12 +402,16 @@ func TestRunHandlesControllerError(t *testing.T) {
 	}
 
 	deps.loadConfig = loadConfigStub()
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
 
 	deps.newController = func(
 		ctx context.Context,
 		mode string,
 		cfg runtimeConfig,
 		imdsClient imds.Client,
+		_ adapt.MetricsRecorder,
 	) (adapt.Controller, poolStarter, error) {
 		_ = ctx
 		_ = cfg
@@ -443,13 +457,163 @@ func TestRunHandlesControllerFactoryError(t *testing.T) {
 
 		return cfg, nil
 	}
-	deps.newController = func(context.Context, string, runtimeConfig, imds.Client) (adapt.Controller, poolStarter, error) {
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
+	deps.newController = func(
+		context.Context,
+		string,
+		runtimeConfig,
+		imds.Client,
+		adapt.MetricsRecorder,
+	) (adapt.Controller, poolStarter, error) {
 		return nil, nil, errStubControllerRun
 	}
 
 	exitCode := run(t.Context(), []string{"--mode", "enforce"}, deps, io.Discard)
 	if exitCode != exitCodeRuntimeError {
 		t.Fatalf("expected runtime error exit code, got %d", exitCode)
+	}
+}
+
+//nolint:funlen // integration-style test exercises metrics wiring end to end.
+func TestRunExposesMetricsOffline(t *testing.T) {
+	t.Parallel()
+
+	serverCh := make(chan *httptest.Server, 1)
+	deps := newOfflineRunDeps(t, serverCh)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	exitCh := make(chan int, 1)
+
+	go func() {
+		exitCh <- run(ctx, []string{"--mode", "dry-run"}, deps, io.Discard)
+	}()
+
+	var server *httptest.Server
+	select {
+	case server = <-serverCh:
+	case <-time.After(metricsServerWait):
+		t.Fatal("timed out waiting for metrics server")
+	}
+
+	defer server.Close()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/metrics", nil)
+	if err != nil {
+		t.Fatalf("build metrics request: %v", err)
+	}
+
+	resp, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("GET /metrics failed: %v", err)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if err != nil {
+		t.Fatalf("read metrics response: %v", err)
+	}
+
+	output := string(body)
+	expectMetricsSnippets(
+		t,
+		output,
+		[]string{
+			"shaper_mode{mode=\"dry-run\"} 1",
+			"shaper_state{state=\"normal\"} 1",
+			"shaper_target_ratio 0.330000",
+			"worker_count 4",
+			"duty_cycle_ms 2.000",
+			"host_cpu_percent 50.00",
+			"oci_p95 0.280000",
+			"oci_last_success_epoch 1700000100",
+		},
+	)
+
+	cancel()
+
+	exitCode := <-exitCh
+	if exitCode != exitCodeSuccess {
+		t.Fatalf("expected zero exit code, got %d", exitCode)
+	}
+}
+
+//nolint:funlen // helper configures run dependencies and keeps test setup readable.
+func newOfflineRunDeps(t *testing.T, serverCh chan<- *httptest.Server) runDeps {
+	t.Helper()
+
+	deps := defaultRunDeps()
+	deps.newLogger = func(string) (*zap.Logger, error) {
+		return zap.NewNop(), nil
+	}
+	deps.loadConfig = func(string) (runtimeConfig, error) {
+		cfg := defaultRuntimeConfig()
+		cfg.OCI.Offline = true
+		cfg.OCI.CompartmentID = ""
+		cfg.OCI.Region = ""
+		cfg.Controller.TargetStart = 0.33
+		cfg.Pool.Workers = 4
+		cfg.Pool.Quantum = 2 * time.Millisecond
+		cfg.HTTP.Bind = ":0"
+
+		return cfg, nil
+	}
+	deps.startMetricsServer = func(ctx context.Context, _ *zap.Logger, _ string, handler http.Handler) error {
+		server := httptest.NewServer(handler)
+
+		serverCh <- server
+
+		go func() {
+			<-ctx.Done()
+			server.Close()
+		}()
+
+		return nil
+	}
+	deps.newController = func(
+		ctx context.Context,
+		mode string,
+		cfg runtimeConfig,
+		imdsClient imds.Client,
+		recorder adapt.MetricsRecorder,
+	) (adapt.Controller, poolStarter, error) {
+		_ = ctx
+		_ = imdsClient
+
+		if recorder != nil {
+			recorder.SetMode(mode)
+			recorder.SetState(adapt.StateNormal.String())
+			recorder.SetTarget(cfg.Controller.TargetStart)
+			recorder.ObserveHostCPU(0.5)
+			recorder.ObserveOCIP95(0.28, time.Unix(1_700_000_100, 0))
+		}
+
+		pool := new(stubPoolStarter)
+		pool.workers = cfg.Pool.Workers
+		pool.quantum = cfg.Pool.Quantum
+
+		controller := &blockingController{
+			mode:  mode,
+			state: adapt.StateNormal,
+		}
+
+		return controller, pool, nil
+	}
+
+	return deps
+}
+
+func expectMetricsSnippets(t *testing.T, output string, snippets []string) {
+	t.Helper()
+
+	for _, snippet := range snippets {
+		if !strings.Contains(output, snippet) {
+			t.Fatalf("expected metrics output to contain %q, got:\n%s", snippet, output)
+		}
 	}
 }
 
@@ -463,6 +627,7 @@ func TestDefaultControllerFactoryReturnsNoopForMode(t *testing.T) {
 		modeNoop,
 		defaultRuntimeConfig(),
 		noopIMDS,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("defaultControllerFactory returned error: %v", err)
@@ -506,6 +671,7 @@ func TestDefaultControllerFactoryBuildsAdaptiveController(t *testing.T) {
 		modeEnforce,
 		cfg,
 		imdsClient,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("defaultControllerFactory returned error: %v", err)
@@ -534,6 +700,7 @@ func TestDefaultControllerFactoryErrorsOnMissingCompartmentID(t *testing.T) {
 		modeDryRun,
 		cfg,
 		imdsClient,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error when compartment ID is missing")
@@ -562,6 +729,7 @@ func TestDefaultControllerFactoryPropagatesMetricsFailure(t *testing.T) {
 		modeDryRun,
 		cfg,
 		imdsClient,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error when metrics client creation fails")
@@ -583,6 +751,7 @@ func TestDefaultControllerFactoryPropagatesIMDSError(t *testing.T) {
 		modeDryRun,
 		cfg,
 		failingIMDS,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error when instance lookup fails")
@@ -622,6 +791,7 @@ func TestBuildAdaptiveControllerUsesConfiguredInstanceID(t *testing.T) {
 		modeDryRun,
 		cfg,
 		imdsClient,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("buildAdaptiveController returned error: %v", err)
@@ -661,7 +831,7 @@ func TestBuildAdaptiveControllerOfflineSkipsExternalDependencies(t *testing.T) {
 	imdsClient := new(stubIMDSClient)
 	imdsClient.instanceErr = errInstanceDown
 
-	controller, pool, err := buildAdaptiveController(ctx, modeDryRun, cfg, imdsClient)
+	controller, pool, err := buildAdaptiveController(ctx, modeDryRun, cfg, imdsClient, nil)
 	if err != nil {
 		t.Fatalf("buildAdaptiveController returned error: %v", err)
 	}
@@ -1192,7 +1362,16 @@ func runShutdownScenario(t *testing.T, runErr error, reason string) {
 		return logger, nil
 	}
 	deps.loadConfig = loadConfigStub()
-	deps.newController = func(context.Context, string, runtimeConfig, imds.Client) (adapt.Controller, poolStarter, error) {
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
+	deps.newController = func(
+		context.Context,
+		string,
+		runtimeConfig,
+		imds.Client,
+		adapt.MetricsRecorder,
+	) (adapt.Controller, poolStarter, error) {
 		return ctrl, nil, nil
 	}
 
@@ -1253,6 +1432,26 @@ func (c *stubController) State() adapt.State {
 
 	return c.state
 }
+
+type blockingController struct {
+	mode  string
+	state adapt.State
+}
+
+func (c *blockingController) Run(ctx context.Context) error {
+	<-ctx.Done()
+
+	err := ctx.Err()
+	if err == nil {
+		err = context.Canceled
+	}
+
+	return fmt.Errorf("controller run: %w", err)
+}
+
+func (c *blockingController) Mode() string { return c.mode }
+
+func (c *blockingController) State() adapt.State { return c.state }
 
 func fieldString(fields []zap.Field, key string) string {
 	for _, field := range fields {
@@ -1389,10 +1588,28 @@ func newIPv4TestServer(t *testing.T, handler http.Handler) *httptest.Server {
 
 type stubPoolStarter struct {
 	startCount int
+	workers    int
+	quantum    time.Duration
 }
 
 func (s *stubPoolStarter) Start(context.Context) {
 	s.startCount++
+}
+
+func (s *stubPoolStarter) Workers() int {
+	if s.workers <= 0 {
+		return 1
+	}
+
+	return s.workers
+}
+
+func (s *stubPoolStarter) Quantum() time.Duration {
+	if s.quantum <= 0 {
+		return time.Millisecond
+	}
+
+	return s.quantum
 }
 
 type stubMetricsAdapter struct{}

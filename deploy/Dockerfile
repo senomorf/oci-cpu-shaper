@@ -39,6 +39,8 @@ COPY deploy/config/offline-smoke.yaml /etc/oci-cpu-shaper/config.yaml
 
 USER nonroot:nonroot
 
+EXPOSE 9108
+
 ENTRYPOINT ["/usr/local/bin/oci-cpu-shaper"]
 
 FROM gcr.io/distroless/static:latest AS rootful
@@ -51,5 +53,7 @@ COPY --from=builder /out/oci-cpu-shaper /usr/local/bin/oci-cpu-shaper
 COPY deploy/config/offline-smoke.yaml /etc/oci-cpu-shaper/config.yaml
 
 USER 0:0
+
+EXPOSE 9108
 
 ENTRYPOINT ["/usr/local/bin/oci-cpu-shaper"]

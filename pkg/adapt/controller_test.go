@@ -201,7 +201,7 @@ func runControllerScenario(t *testing.T, scenario controllerScenario) {
 	cfg.Interval = time.Hour
 	cfg.RelaxedInterval = 6 * time.Hour
 
-	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper)
+	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper, nil)
 	if err != nil {
 		t.Fatalf("NewAdaptiveController: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestConsumeEstimatorSuppression(t *testing.T) {
 	cfg.SuppressThreshold = 0.8
 	cfg.SuppressResume = 0.5
 
-	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper)
+	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper, nil)
 	if err != nil {
 		t.Fatalf("NewAdaptiveController: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestConsumeEstimatorHandlesErrors(t *testing.T) {
 	shaper := newFakeShaper()
 	cfg := DefaultConfig()
 
-	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper)
+	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper, nil)
 	if err != nil {
 		t.Fatalf("NewAdaptiveController: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestAdaptiveControllerRunLifecycle(t *testing.T) {
 		consumed: atomic.Int32{},
 	}
 
-	controller, err := NewAdaptiveController(cfg, metrics, estimator, shaper)
+	controller, err := NewAdaptiveController(cfg, metrics, estimator, shaper, nil)
 	if err != nil {
 		t.Fatalf("NewAdaptiveController: %v", err)
 	}
@@ -393,6 +393,134 @@ func TestAdaptiveControllerRunLifecycle(t *testing.T) {
 
 	if estimator.consumed.Load() == 0 {
 		t.Fatalf("expected estimator observations to be consumed")
+	}
+}
+
+func TestAdaptiveControllerEmitsMetricsSignals(t *testing.T) {
+	t.Parallel()
+
+	recorder := newStubMetricsRecorder()
+	metrics := newFakeMetrics([]metricResult{{value: 0.20, err: nil}})
+	shaper := newFakeShaper()
+	cfg := DefaultConfig()
+	cfg.Mode = "  enforce  "
+
+	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper, recorder)
+	if err != nil {
+		t.Fatalf("NewAdaptiveController: %v", err)
+	}
+
+	requirePositiveInt(t, "modeCalls", recorder.modeCalls)
+	requireEqual(t, "mode", recorder.mode, "enforce")
+	requireEqual(t, "initialState", recorder.state, StateFallback.String())
+	requireFloatApprox(t, "initialTarget", recorder.target, cfg.FallbackTarget)
+
+	feedObservation(controller, 0, 0.75, nil)
+
+	requirePositiveInt(t, "hostCalls", recorder.hostCalls)
+	requireFloatApprox(t, "hostUtilisation", recorder.host, 0.75)
+
+	stepper, ok := any(controller).(controllerStepper)
+	if !ok {
+		t.Fatalf("controller does not expose stepper interface")
+	}
+
+	stepper.step(context.Background())
+
+	requirePositiveInt(t, "ociCalls", recorder.ociCalls)
+	requireFloatApprox(t, "ociValue", recorder.ociValue, 0.20)
+	requireNotZeroTime(t, "ociTime", recorder.ociTime)
+	requireEqual(t, "stateAfterStep", recorder.state, StateNormal.String())
+	requireFloatApprox(t, "targetAfterStep", recorder.target, shaper.Target())
+}
+
+type stubMetricsRecorder struct {
+	mu          sync.Mutex
+	mode        string
+	modeCalls   int
+	state       string
+	stateCalls  int
+	target      float64
+	targetCalls int
+	ociValue    float64
+	ociTime     time.Time
+	ociCalls    int
+	host        float64
+	hostCalls   int
+}
+
+func newStubMetricsRecorder() *stubMetricsRecorder { return new(stubMetricsRecorder) }
+
+func (s *stubMetricsRecorder) SetMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.mode = mode
+	s.modeCalls++
+}
+
+func (s *stubMetricsRecorder) SetState(state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.state = state
+	s.stateCalls++
+}
+
+func (s *stubMetricsRecorder) SetTarget(target float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.target = target
+	s.targetCalls++
+}
+
+func (s *stubMetricsRecorder) ObserveOCIP95(value float64, fetchedAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ociValue = value
+	s.ociTime = fetchedAt
+	s.ociCalls++
+}
+
+func (s *stubMetricsRecorder) ObserveHostCPU(utilisation float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.host = utilisation
+	s.hostCalls++
+}
+
+func requireEqual[T comparable](t *testing.T, name string, got, want T) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("expected %s to be %v, got %v", name, want, got)
+	}
+}
+
+func requireFloatApprox(t *testing.T, name string, got, want float64) {
+	t.Helper()
+
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("expected %s %.6f, got %.6f", name, want, got)
+	}
+}
+
+func requirePositiveInt(t *testing.T, name string, value int) {
+	t.Helper()
+
+	if value <= 0 {
+		t.Fatalf("expected %s to be positive, got %d", name, value)
+	}
+}
+
+func requireNotZeroTime(t *testing.T, name string, value time.Time) {
+	t.Helper()
+
+	if value.IsZero() {
+		t.Fatalf("expected %s to be non-zero", name)
 	}
 }
 

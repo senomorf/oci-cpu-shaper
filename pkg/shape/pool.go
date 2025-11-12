@@ -72,6 +72,16 @@ func (p *Pool) Start(ctx context.Context) {
 	}
 }
 
+// Workers returns the number of worker goroutines managed by the pool.
+func (p *Pool) Workers() int {
+	return p.workers
+}
+
+// Quantum reports the duty-cycle quantum assigned to each worker.
+func (p *Pool) Quantum() time.Duration {
+	return p.quantum
+}
+
 // SetTarget updates the duty cycle target in the range [0,1].
 func (p *Pool) SetTarget(target float64) {
 	if math.IsNaN(target) {

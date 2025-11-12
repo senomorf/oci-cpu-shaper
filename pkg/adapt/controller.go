@@ -52,6 +52,15 @@ type DutyCycler interface {
 	Target() float64
 }
 
+// MetricsRecorder captures controller observability signals.
+type MetricsRecorder interface {
+	SetMode(mode string)
+	SetState(state string)
+	SetTarget(target float64)
+	ObserveOCIP95(value float64, fetchedAt time.Time)
+	ObserveHostCPU(utilisation float64)
+}
+
 // Estimator exposes the observation stream produced by pkg/est.
 type Estimator interface {
 	Run(ctx context.Context) <-chan est.Observation
@@ -126,6 +135,7 @@ type AdaptiveController struct {
 	metrics   oci.MetricsClient
 	shaper    DutyCycler
 	estimator Estimator
+	recorder  MetricsRecorder
 
 	mu         sync.Mutex
 	state      State
@@ -149,6 +159,7 @@ func NewAdaptiveController(
 	metrics oci.MetricsClient,
 	estimator Estimator,
 	shaper DutyCycler,
+	recorder MetricsRecorder,
 ) (*AdaptiveController, error) {
 	if metrics == nil {
 		return nil, errMetricsClientRequired
@@ -165,6 +176,7 @@ func NewAdaptiveController(
 	controller.metrics = metrics
 	controller.shaper = shaper
 	controller.estimator = estimator
+	controller.recorder = recorder
 	controller.state = StateFallback
 	controller.slowState = StateFallback
 	controller.target = normalized.FallbackTarget
@@ -173,6 +185,12 @@ func NewAdaptiveController(
 	controller.mode = mode
 
 	shaper.SetTarget(normalized.FallbackTarget)
+
+	if recorder != nil {
+		recorder.SetMode(mode)
+		recorder.SetState(controller.state.String())
+		recorder.SetTarget(controller.target)
+	}
 
 	return controller, nil
 }
@@ -285,6 +303,10 @@ func (c *AdaptiveController) handleObservation(observation est.Observation) {
 	}
 
 	utilisation := clamp(observation.Utilisation, 0, 1)
+	if c.recorder != nil {
+		c.recorder.ObserveHostCPU(utilisation)
+	}
+
 	c.updateHostLoadLocked(utilisation)
 	previouslySuppressed := c.transitionSuppressionLocked()
 	c.applySuppressionTargetsLocked(previouslySuppressed)
@@ -351,7 +373,11 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 
 	c.slowState = StateNormal
 	c.lastErr = nil
+
 	c.lastP95 = p95
+	if c.recorder != nil {
+		c.recorder.ObserveOCIP95(p95, time.Now())
+	}
 
 	nextTarget := c.target
 	if c.suppressed {
@@ -387,16 +413,26 @@ func (c *AdaptiveController) step(ctx context.Context) time.Duration {
 func (c *AdaptiveController) applyTargetLocked(target float64) {
 	c.target = target
 	c.shaper.SetTarget(target)
+
+	if c.recorder != nil {
+		c.recorder.SetTarget(target)
+	}
 }
 
 func (c *AdaptiveController) updateEffectiveStateLocked() {
 	if c.suppressed {
 		c.state = StateSuppressed
+		if c.recorder != nil {
+			c.recorder.SetState(c.state.String())
+		}
 
 		return
 	}
 
 	c.state = c.slowState
+	if c.recorder != nil {
+		c.recorder.SetState(c.state.String())
+	}
 }
 
 func clamp(value, lower, upper float64) float64 {

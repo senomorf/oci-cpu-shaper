@@ -4,6 +4,7 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+- OpenMetrics exporter (`pkg/http/metrics`) with controller/estimator gauges (`shaper_target_ratio`, `shaper_mode`, `shaper_state`, `oci_p95`, `oci_last_success_epoch`, `duty_cycle_ms`, `worker_count`, `host_cpu_percent`) plus CLI `/metrics` wiring, offline `httptest.Server` coverage, and rootless Compose port exposure to keep the ≥85% budget intact (§§5.2, 9, 11).
 - Regression suite `TestControllerCpuUtilisationAcrossOCPUs` covering 1–4 OCPU CpuUtilization streams and the relaxed-interval clamp so the adaptive controller keeps the Always Free reclaim guardrails documented in §§3.1 and 5.2. Tests maintain the ≥85% statement floor by exercising the prolonged high-utilisation path in `pkg/adapt/controller.go` (§11).
 - Deterministic 24-hour-equivalent worker-pool load harness (`go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent`) that logs CPU/RSS telemetry to `artifacts/load/pool-24h.log` and enforces the §10 budgets alongside nightly/manual CI coverage via `.github/workflows/load.yml` (§§10, 11.4).
 - Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
@@ -32,6 +33,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 
 ### Changed
 _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 
+- CLI now starts the metrics HTTP server using `http.bind`/`HTTP_ADDR`, shuts it down with the run context, and ships container/Compose updates (`EXPOSE 9108`, `${SHAPER_METRICS_BIND}`) so `/metrics` is reachable when enabled; docs describe the exporter and monitoring workflow alignment (§§6, 9, 11).
 - CLI metadata resolution now populates `oci.compartmentId`/`OCI_COMPARTMENT_ID` alongside the new `oci.region`/`OCI_REGION` overrides using IMDS when online, threads the resolved region into the Monitoring client, and logs both identifiers for observability. Fresh unit coverage in §11 exercises the success, fallback, and error paths so the ≥85% statement floor holds.
 - IMDS client now injects the required IMDSv2 authorisation header and exposes canonical-region plus compartment OCID lookups, with unit tests and docs refreshed to keep §2 aligned with the metadata surface.
 - CLI `--mode` handling now starts the adaptive controller in `dry-run`/`enforce`, keeps `noop` as a diagnostics bypass, and logs configuration failures surfaced by the new YAML/environment loader. Updated docs in §§5 and 9 describe the operating modes and tunable configuration.
