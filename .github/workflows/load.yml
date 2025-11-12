@@ -1,0 +1,43 @@
+name: Load Test
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  load-test:
+    name: worker pool load
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Restore Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-
+
+      - name: Run worker pool load test
+        run: go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent -count=1 -v
+
+      - name: Upload load test log
+        uses: actions/upload-artifact@v5.0.0
+        with:
+          name: load-test-log
+          path: artifacts/load/pool-24h.log
+          if-no-files-found: error

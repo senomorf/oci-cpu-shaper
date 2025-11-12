@@ -18,6 +18,8 @@ type Pool struct {
 	sleepFunc func(time.Duration)
 	yieldFunc func()
 
+	tickerFactory func(time.Duration) ticker
+
 	targetBits atomic.Uint64
 }
 
@@ -55,6 +57,9 @@ func NewPool(workers int, quantum time.Duration) (*Pool, error) {
 	poolInstance.busyFunc = busyWait
 	poolInstance.sleepFunc = time.Sleep
 	poolInstance.yieldFunc = runtime.Gosched
+	poolInstance.tickerFactory = func(duration time.Duration) ticker {
+		return &runtimeTicker{ticker: time.NewTicker(duration)}
+	}
 	poolInstance.SetTarget(0)
 
 	return poolInstance, nil
@@ -93,14 +98,14 @@ func (p *Pool) worker(ctx context.Context) {
 	sleepFn := p.sleepFunc
 	yieldFn := p.yieldFunc
 
-	ticker := time.NewTicker(quantum)
+	ticker := p.tickerFactory(quantum)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			target := p.Target()
 
 			busyDuration := min(time.Duration(target*float64(quantum)), quantum)
@@ -133,4 +138,21 @@ func busyWait(duration time.Duration) {
 	for time.Now().Before(deadline) {
 		runtime.Gosched()
 	}
+}
+
+type ticker interface {
+	C() <-chan time.Time
+	Stop()
+}
+
+type runtimeTicker struct {
+	ticker *time.Ticker
+}
+
+func (t *runtimeTicker) C() <-chan time.Time {
+	return t.ticker.C
+}
+
+func (t *runtimeTicker) Stop() {
+	t.ticker.Stop()
 }
