@@ -51,7 +51,7 @@ oci:
 
 - `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy. The fast-loop suppression settings (`suppressThreshold`, `suppressResume`) decide when estimator-driven contention drops the worker pool to zero and when work resumes after the host cools.
 - `estimator.interval` controls the fast `/proc/stat` sampler cadence (§5.2) while the worker `pool` exposes quantum sizing that stays within the 1–5 ms duty-cycle budget.
-- `http.bind` retains the Prometheus listener address, and `oci.compartmentId` supplies the tenancy scope required by the Monitoring client while `oci.region` pins the Monitoring endpoint region when IMDS access is unavailable (for example, CI smoke tests).
+- `http.bind` retains the Prometheus listener address and now backs the `/metrics` exporter described in §9.5, while `oci.compartmentId` supplies the tenancy scope required by the Monitoring client and `oci.region` pins the Monitoring endpoint region when IMDS access is unavailable (for example, CI smoke tests).
 - `oci.instanceId` is optional and lets operators bypass IMDS lookups when metadata access is blocked (for example, CI smoke tests or staging environments without instance principals). When `oci.offline` is set the CLI injects a static metrics client and fallback instance ID so dry-run/enforce can exercise the adaptive controller without IMDS or Monitoring access (§§5.2, 11).
 
 When `oci.compartmentId` or `oci.region` are omitted in online deployments the CLI now consults IMDS to resolve both values before constructing the Monitoring client, ensuring metrics queries and structured logs include the canonical tenancy metadata without additional configuration.
@@ -93,3 +93,10 @@ Rootful binaries built with `-tags rootful` log a warning if the kernel rejects 
 the Compose or Quadlet stacks must grant `CAP_SYS_NICE`/`SYS_NICE` so the
 `worker failed to enter sched_idle` warning remains informational rather than a
 permanent indicator that the downgrade could not be applied.
+
+## 9.5 Metrics Exporter
+
+- `cmd/shaper` now instantiates the lightweight OpenMetrics exporter from `pkg/http/metrics` and binds it to `/metrics` on the address supplied via `http.bind`/`HTTP_ADDR`, mirroring the observability wiring outlined in §§5.2 and 9.
+- The handler publishes controller and estimator gauges/counters—`shaper_target_ratio`, `shaper_mode`, `shaper_state`, `oci_p95`, `oci_last_success_epoch`, `duty_cycle_ms`, `worker_count`, and `host_cpu_percent`—so Prometheus scrape targets can track mode transitions, OCI freshness, worker sizing, and host contention (§§3.1, 5.2).
+- Offline mode continues to populate the exporter with synthetic data, and the CLI unit suite exercises the handler via `httptest.Server` alongside dedicated exporter tests to keep the ≥85% coverage floor intact (§11).
+- Rootless Compose stacks expose the listener through `${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108`, while the container images declare `EXPOSE 9108` so orchestrators can surface the endpoint without manual port wiring (§§6, 9).

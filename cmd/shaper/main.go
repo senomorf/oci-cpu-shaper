@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
 	"oci-cpu-shaper/pkg/est"
+	metricshttp "oci-cpu-shaper/pkg/http/metrics"
 	"oci-cpu-shaper/pkg/imds"
 	"oci-cpu-shaper/pkg/oci"
 	"oci-cpu-shaper/pkg/shape"
@@ -34,6 +37,9 @@ const (
 	exitCodeSuccess      = 0
 	exitCodeRuntimeError = 1
 	exitCodeParseError   = 2
+
+	metricsReadHeaderTimeout = 5 * time.Second
+	metricsShutdownTimeout   = 5 * time.Second
 )
 
 func main() {
@@ -53,13 +59,23 @@ type runDeps struct {
 		mode string,
 		cfg runtimeConfig,
 		imdsClient imds.Client,
+		recorder adapt.MetricsRecorder,
 	) (adapt.Controller, poolStarter, error)
-	currentBuildInfo func() buildinfo.Info
-	loadConfig       func(path string) (runtimeConfig, error)
+	currentBuildInfo   func() buildinfo.Info
+	loadConfig         func(path string) (runtimeConfig, error)
+	newMetricsExporter func() *metricshttp.Exporter
+	startMetricsServer func(
+		ctx context.Context,
+		logger *zap.Logger,
+		addr string,
+		handler http.Handler,
+	) error
 }
 
 type poolStarter interface {
 	Start(ctx context.Context)
+	Workers() int
+	Quantum() time.Duration
 	SetWorkerStartErrorHandler(handler func(err error))
 }
 
@@ -97,16 +113,57 @@ var (
 	)
 	errControllerRegionRequired = errors.New("controller factory: OCI region is required")
 	errMetricsDelegateNil       = errors.New("metrics client: nil delegate")
+	errMetricsContextRequired   = errors.New("metrics server: context is required")
 )
 
 func defaultRunDeps() runDeps {
 	return runDeps{
-		newLogger:        newLogger,
-		newIMDS:          defaultIMDSFactory,
-		newController:    defaultControllerFactory,
-		currentBuildInfo: buildinfo.Current,
-		loadConfig:       loadConfig,
+		newLogger:          newLogger,
+		newIMDS:            defaultIMDSFactory,
+		newController:      defaultControllerFactory,
+		currentBuildInfo:   buildinfo.Current,
+		loadConfig:         loadConfig,
+		newMetricsExporter: metricshttp.NewExporter,
+		startMetricsServer: startMetricsServer,
 	}
+}
+
+func buildMetricsExporter(deps runDeps) *metricshttp.Exporter {
+	if deps.newMetricsExporter != nil {
+		exporter := deps.newMetricsExporter()
+		if exporter != nil {
+			return exporter
+		}
+	}
+
+	return metricshttp.NewExporter()
+}
+
+func configureMetrics(
+	ctx context.Context,
+	deps runDeps,
+	logger *zap.Logger,
+	cfg runtimeConfig,
+	exporter *metricshttp.Exporter,
+	pool poolStarter,
+) error {
+	if exporter == nil {
+		return nil
+	}
+
+	if pool != nil {
+		exporter.SetWorkerCount(pool.Workers())
+		exporter.SetDutyCycle(pool.Quantum())
+	}
+
+	if deps.startMetricsServer == nil {
+		return nil
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", exporter)
+
+	return deps.startMetricsServer(ctx, logger, cfg.HTTP.Bind, mux)
 }
 
 // run orchestrates CLI initialization before handing execution to the controller.
@@ -147,6 +204,8 @@ func run(
 
 	imdsClient := deps.newIMDS()
 
+	metricsExporter := buildMetricsExporter(deps)
+
 	cfg, _, metadataErr := prepareRunMetadata(ctx, cfg, imdsClient, opts.mode)
 	if metadataErr != nil {
 		logger.Error("failed to resolve oci metadata", zap.Error(metadataErr))
@@ -154,9 +213,22 @@ func run(
 		return exitCodeRuntimeError
 	}
 
-	controller, pool, buildErr := deps.newController(ctx, opts.mode, cfg, imdsClient)
+	controller, pool, buildErr := deps.newController(
+		ctx,
+		opts.mode,
+		cfg,
+		imdsClient,
+		metricsExporter,
+	)
 	if buildErr != nil {
 		logger.Error("failed to build controller", zap.Error(buildErr))
+
+		return exitCodeRuntimeError
+	}
+
+	err = configureMetrics(ctx, deps, logger, cfg, metricsExporter, pool)
+	if err != nil {
+		logger.Error("failed to start metrics server", zap.Error(err))
 
 		return exitCodeRuntimeError
 	}
@@ -389,6 +461,7 @@ func defaultControllerFactory(
 	mode string,
 	cfg runtimeConfig,
 	imdsClient imds.Client,
+	recorder adapt.MetricsRecorder,
 ) (adapt.Controller, poolStarter, error) {
 	trimmed := strings.TrimSpace(mode)
 	if trimmed == "" {
@@ -396,6 +469,12 @@ func defaultControllerFactory(
 	}
 
 	if trimmed == modeNoop {
+		if recorder != nil {
+			recorder.SetMode(trimmed)
+			recorder.SetState(adapt.StateNormal.String())
+			recorder.SetTarget(0)
+		}
+
 		return adapt.NewNoopController(trimmed), nil, nil
 	}
 
@@ -403,15 +482,16 @@ func defaultControllerFactory(
 		return nil, nil, errControllerIMDSRequired
 	}
 
-	return buildAdaptiveController(ctx, trimmed, cfg, imdsClient)
+	return buildAdaptiveController(ctx, trimmed, cfg, imdsClient, recorder)
 }
 
-//nolint:ireturn // helper returns controller interface for wiring
+//nolint:ireturn,funlen // helper returns controller interface for wiring and coordinates several setup steps
 func buildAdaptiveController(
 	ctx context.Context,
 	mode string,
 	cfg runtimeConfig,
 	imdsClient imds.Client,
+	recorder adapt.MetricsRecorder,
 ) (adapt.Controller, poolStarter, error) {
 	offline := cfg.OCI.Offline
 
@@ -460,7 +540,13 @@ func buildAdaptiveController(
 		SuppressResume:    cfg.Controller.SuppressResume,
 	}
 
-	controller, err := adapt.NewAdaptiveController(controllerCfg, metricsClient, sampler, pool)
+	controller, err := adapt.NewAdaptiveController(
+		controllerCfg,
+		metricsClient,
+		sampler,
+		pool,
+		recorder,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build adaptive controller: %w", err)
 	}
@@ -621,6 +707,60 @@ func createMetricsClient(
 	}
 
 	return metricsClient, nil
+}
+
+func startMetricsServer(
+	ctx context.Context,
+	logger *zap.Logger,
+	addr string,
+	handler http.Handler,
+) error {
+	trimmed := strings.TrimSpace(addr)
+	if trimmed == "" || handler == nil {
+		return nil
+	}
+
+	if ctx == nil {
+		return errMetricsContextRequired
+	}
+
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	var listenCfg net.ListenConfig
+
+	listener, err := listenCfg.Listen(ctx, "tcp", trimmed)
+	if err != nil {
+		return fmt.Errorf("listen metrics endpoint %q: %w", trimmed, err)
+	}
+
+	server := &http.Server{ //nolint:exhaustruct // only security-critical timeout configured here
+		ReadHeaderTimeout: metricsReadHeaderTimeout,
+	}
+	server.Addr = trimmed
+	server.Handler = handler
+
+	go func() {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(ctx, metricsShutdownTimeout)
+		defer cancel()
+
+		err := server.Shutdown(shutdownCtx)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Warn("metrics server shutdown", zap.Error(err))
+		}
+	}()
+
+	go func() {
+		err := server.Serve(listener)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Warn("metrics server serve", zap.Error(err))
+		}
+	}()
+
+	return nil
 }
 
 //nolint:ireturn // factory returns interface for dependency substitution.

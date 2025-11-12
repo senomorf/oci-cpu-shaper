@@ -19,6 +19,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    ports:
+      - ${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108
     security_opt:
       - no-new-privileges:true
     cpu_shares: ${SHAPER_CPU_SHARES:-512}
