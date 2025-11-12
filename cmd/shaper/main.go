@@ -426,19 +426,21 @@ func buildAdaptiveController(
 	sampler := est.NewSampler(nil, cfg.Estimator.Interval)
 
 	controllerCfg := adapt.Config{
-		ResourceID:       instanceID,
-		Mode:             mode,
-		TargetStart:      cfg.Controller.TargetStart,
-		TargetMin:        cfg.Controller.TargetMin,
-		TargetMax:        cfg.Controller.TargetMax,
-		StepUp:           cfg.Controller.StepUp,
-		StepDown:         cfg.Controller.StepDown,
-		FallbackTarget:   cfg.Controller.FallbackTarget,
-		GoalLow:          cfg.Controller.GoalLow,
-		GoalHigh:         cfg.Controller.GoalHigh,
-		Interval:         cfg.Controller.Interval,
-		RelaxedInterval:  cfg.Controller.RelaxedInterval,
-		RelaxedThreshold: cfg.Controller.RelaxedThreshold,
+		ResourceID:        instanceID,
+		Mode:              mode,
+		TargetStart:       cfg.Controller.TargetStart,
+		TargetMin:         cfg.Controller.TargetMin,
+		TargetMax:         cfg.Controller.TargetMax,
+		StepUp:            cfg.Controller.StepUp,
+		StepDown:          cfg.Controller.StepDown,
+		FallbackTarget:    cfg.Controller.FallbackTarget,
+		GoalLow:           cfg.Controller.GoalLow,
+		GoalHigh:          cfg.Controller.GoalHigh,
+		Interval:          cfg.Controller.Interval,
+		RelaxedInterval:   cfg.Controller.RelaxedInterval,
+		RelaxedThreshold:  cfg.Controller.RelaxedThreshold,
+		SuppressThreshold: cfg.Controller.SuppressThreshold,
+		SuppressResume:    cfg.Controller.SuppressResume,
 	}
 
 	controller, err := adapt.NewAdaptiveController(controllerCfg, metricsClient, sampler, pool)
@@ -658,6 +660,7 @@ func logIMDSMetadata(
 ) {
 	fields := []zap.Field{
 		zap.String("controllerMode", controller.Mode()),
+		zap.String("controllerState", controller.State().String()),
 		zap.Bool("offline", offline),
 	}
 

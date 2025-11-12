@@ -148,19 +148,41 @@ jobs:
         uses: docker/setup-buildx-action@v3.11.1
 
       - name: Build container image
-        uses: docker/build-push-action@v6.18.0
-        with:
-          context: .
-          file: deploy/Dockerfile
-          platforms: linux/amd64
-          tags: oci-cpu-shaper:test
-          load: true
-          cache-from: type=gha,scope=ci-container-smoke
-          cache-to: type=gha,scope=ci-container-smoke,mode=max
-          build-args: |
-            VERSION=dev
-            GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ steps.build-meta.outputs.build-date }}
+        env:
+          RETRY_ATTEMPTS: "3"
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          attempt=1
+          while [ "$attempt" -le "$RETRY_ATTEMPTS" ]; do
+            echo "[build] attempt ${attempt}/${RETRY_ATTEMPTS}"
+            if docker buildx build \
+              --file deploy/Dockerfile \
+              --platform linux/amd64 \
+              --tag oci-cpu-shaper:test \
+              --load \
+              --cache-from type=gha,scope=ci-container-smoke \
+              --cache-to type=gha,scope=ci-container-smoke,mode=max \
+              --build-arg VERSION=dev \
+              --build-arg GIT_COMMIT="${{ github.sha }}" \
+              --build-arg BUILD_DATE="${{ steps.build-meta.outputs.build-date }}" \
+              .; then
+              echo "[build] succeeded on attempt ${attempt}"
+              break
+            fi
+
+            if [ "$attempt" -eq "$RETRY_ATTEMPTS" ]; then
+              echo "::error::docker buildx build failed after ${RETRY_ATTEMPTS} attempts"
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            backoff=$((attempt * 10))
+            echo "[build] retrying in ${backoff}s"
+            sleep "$backoff"
+          done
 
       - name: Smoke test dry-run mode
         run: |

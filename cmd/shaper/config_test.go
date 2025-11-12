@@ -41,6 +41,19 @@ func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	if cfg.OCI.Region != "" {
 		t.Fatalf("expected region to default empty, got %q", cfg.OCI.Region)
 	}
+
+	assertFloatEqual(
+		t,
+		"suppressThreshold",
+		cfg.Controller.SuppressThreshold,
+		adaptDefault().SuppressThreshold,
+	)
+	assertFloatEqual(
+		t,
+		"suppressResume",
+		cfg.Controller.SuppressResume,
+		adaptDefault().SuppressResume,
+	)
 }
 
 func TestLoadConfigAppliesFileOverrides(t *testing.T) {
@@ -83,6 +96,9 @@ func TestLoadConfigAppliesFileOverrides(t *testing.T) {
 	if cfg.OCI.Region != expectedRegion {
 		t.Fatalf("expected region %q, got %q", expectedRegion, cfg.OCI.Region)
 	}
+
+	assertFloatEqual(t, "suppressThreshold", cfg.Controller.SuppressThreshold, 0.9)
+	assertFloatEqual(t, "suppressResume", cfg.Controller.SuppressResume, 0.6)
 }
 
 func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
@@ -98,6 +114,8 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	t.Setenv(envInstanceID, " ocid1.instance.oc1..override ")
 	t.Setenv(envOCIRegion, " "+testRegionOverride+" ")
 	t.Setenv(envOCIOffline, "true")
+	t.Setenv(envSuppressThreshold, "0.88")
+	t.Setenv(envSuppressResume, "0.51")
 
 	cfg, err := loadConfig("")
 	if err != nil {
@@ -109,6 +127,8 @@ func TestLoadConfigAppliesEnvOverrides(t *testing.T) {
 	assertFloatEqual(t, "stepUp", cfg.Controller.StepUp, 0.05)
 	assertDurationEqual(t, "interval", cfg.Controller.Interval, 2*time.Hour)
 	assertDurationEqual(t, "relaxedInterval", cfg.Controller.RelaxedInterval, 12*time.Hour)
+	assertFloatEqual(t, "suppressThreshold", cfg.Controller.SuppressThreshold, 0.88)
+	assertFloatEqual(t, "suppressResume", cfg.Controller.SuppressResume, 0.51)
 	assertDurationEqual(t, "estimatorInterval", cfg.Estimator.Interval, 250*time.Millisecond)
 	assertIntEqual(t, "workers", cfg.Pool.Workers, 4)
 	assertStringEqual(t, "httpBind", cfg.HTTP.Bind, ":9300")

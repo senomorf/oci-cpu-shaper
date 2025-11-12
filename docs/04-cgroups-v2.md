@@ -10,7 +10,7 @@ The shaper relies on cgroup v2 CPU controllers to yield capacity to tenant workl
 - Keep weights consistent across deployments; large swings make tuning difficult and may trigger reclaim due to unpredictable duty cycles.
 - Validate runtime mappings after upgrades because past releases of Docker and containerd shipped incorrect v1-to-v2 conversions.[^docker-weight]
 
-The controller observes host load through `/proc/stat` and immediately drops to zero work when contention is detected, so even a modest weight keeps the system responsive.
+The controller observes host load through `/proc/stat` and immediately drops to zero work when contention is detected, so even a modest weight keeps the system responsive. The fast loop maintains a rolling average of host utilisation and enters a suppressed state once the value crosses `controller.suppressThreshold` (default `0.85`). While suppressed, the worker pool target is forced to `0` until the average cools below `controller.suppressResume` (default `0.70`), providing hysteresis that prevents flapping when utilisation hovers near the threshold.
 
 ## 4.2 Optional ceilings via `cpu.max`
 
@@ -27,7 +27,7 @@ This configuration caps the shaper at 30% of one CPU while still allowing bursts
 
 - Inspect `/sys/fs/cgroup/<slice>/cpu.weight` and `/sys/fs/cgroup/<slice>/cpu.max` to confirm runtime configuration.
 - Read `/sys/fs/cgroup/<slice>/cpu.stat` for throttling counters and to verify that any configured `cpu.max` value is not hit continuously.
-- Pair these checks with the shaper’s `/metrics` output and MQL queries described in `docs/05-monitoring-mql.md`.
+- Pair these checks with the shaper’s `/metrics` output and MQL queries described in `docs/05-monitoring-mql.md`. Structured logs now expose `controllerState` so operators can confirm when the suppressed fast-loop mode engaged alongside OCI feedback.
 
 Document any new tunables in this file and `docs/CHANGELOG.md` so operators have a single source of truth for CPU control behaviour.
 

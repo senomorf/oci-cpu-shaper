@@ -4,7 +4,7 @@ import "context"
 
 // NewStaticMetricsClient returns a MetricsClient that always reports the provided value.
 //
-//nolint:ireturn // convenience helper for tests and offline smoke paths
+//nolint:ireturn // static metrics client intentionally returns the interface for wiring flexibility.
 func NewStaticMetricsClient(value float64) MetricsClient {
 	return &staticMetricsClient{value: value}
 }
