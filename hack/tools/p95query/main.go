@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -29,47 +30,67 @@ type queryConfig struct {
 }
 
 func main() {
-	cfg := parseConfig()
+	cfg, err := parseConfig(os.Args[1:])
+	if err != nil {
+		logFatal(err)
+	}
 
-	err := runQuery(cfg)
+	err = runQuery(cfg)
 	if err != nil {
 		logFatal(err)
 	}
 }
 
-func parseConfig() queryConfig {
+type metricsQuerier interface {
+	QueryP95CPU(ctx context.Context, instanceOCID string, last7d bool) (float32, error)
+}
+
+//nolint:gochecknoglobals // test seam for injecting fake clients
+var newMetricsClient = func(
+	compartmentID, region string,
+) (metricsQuerier, error) {
+	return oci.NewInstancePrincipalClient(compartmentID, region)
+}
+
+func parseConfig(args []string) (queryConfig, error) {
 	var cfg queryConfig
 
-	flag.StringVar(&cfg.instanceID, "instance", "", "OCID of the compute instance to query")
-	flag.StringVar(
+	flags := flag.NewFlagSet("p95query", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
+	flags.StringVar(&cfg.instanceID, "instance", "", "OCID of the compute instance to query")
+	flags.StringVar(
 		&cfg.compartmentID,
 		"compartment",
 		"",
 		"Compartment OCID scoped for Monitoring queries",
 	)
-	flag.StringVar(&cfg.region, "region", "", "OCI region override (optional)")
-	flag.BoolVar(
+	flags.StringVar(&cfg.region, "region", "", "OCI region override (optional)")
+	flags.BoolVar(
 		&cfg.last7d,
 		"last7d",
 		true,
 		"Query the trailing seven days instead of the last 24 hours",
 	)
-	flag.DurationVar(
+	flags.DurationVar(
 		&cfg.timeout,
 		"timeout",
 		defaultTimeout,
 		"Timeout for the Monitoring API request",
 	)
-	flag.BoolVar(
+	flags.BoolVar(
 		&cfg.allowEmpty,
 		"allow-empty",
 		false,
 		"Exit successfully when Monitoring returns no datapoints",
 	)
 
-	flag.Parse()
+	err := flags.Parse(args)
+	if err != nil {
+		return queryConfig{}, fmt.Errorf("parse flags: %w", err)
+	}
 
-	return cfg
+	return cfg, nil
 }
 
 func runQuery(cfg queryConfig) error {
@@ -84,7 +105,7 @@ func runQuery(cfg queryConfig) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	client, err := oci.NewInstancePrincipalClient(cfg.compartmentID, cfg.region)
+	client, err := newMetricsClient(cfg.compartmentID, cfg.region)
 	if err != nil {
 		return fmt.Errorf("build instance principal client: %w", err)
 	}
