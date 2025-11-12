@@ -3,7 +3,8 @@
 ## Unreleased
 
 ### Added
-_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+- Deterministic 24-hour-equivalent worker-pool load harness (`go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent`) that logs CPU/RSS telemetry to `artifacts/load/pool-24h.log` and enforces the §10 budgets alongside nightly/manual CI coverage via `.github/workflows/load.yml` (§§10, 11.4).
 - Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
 - Scheduled `self-hosted` workflow exercising IMDS lookups, live `QueryP95CPU` calls via `hack/tools/p95query`, and Docker cgroup v2 behaviour on the OCI runner (§§4, 6, 11, 15).
 - Runner maintenance and secrets rotation guidance in §15 of `docs/08-development.md`, covering patch cadence, token refresh, and repository variables linked to the new workflow (§§8, 12, 15).

@@ -68,6 +68,16 @@ End-to-end responsiveness tests live under `tests/integration/` and run with the
 
 Run the suite on a Linux host with Docker or Podman configured for cgroup v2 (verify with `docker info --format '{{.CgroupVersion}}'` or by checking `/sys/fs/cgroup/cgroup.controllers` for the `cpu` entry). Because the harness builds and runs containers locally, execute it from the repository root with elevated privileges when necessary. The `make integration` helper mirrors the CI workflow: it refuses to run unless Docker is reachable, enforces cgroup v2, and tees verbose output to `artifacts/integration.log`, removing the log directory on success while preserving it after failures for debugging (§§6, 11). Developers who need finer control can still invoke `go test -tags=integration -v ./tests/integration/...`, but the Makefile target should be preferred so local runs collect the same diagnostics as CI. When iterating locally, rerun the suite after modifying container entrypoints, CPU-tuning flags, or workload scripts to preserve the CI-required ≥85% coverage baseline while keeping responsiveness guardrails intact.
 
+## §11.4 Load Test Harness
+
+The deterministic worker-pool load test exercises the `pkg/shape` duty-cycle engine for a 24-hour equivalent window without wall-clock delay. Run it from the repository root so the log lands under `artifacts/load/`:
+
+```bash
+go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent -count=1 -v
+```
+
+The harness records per-worker busy/idle totals, aggregate CPU seconds, and the current RSS sample in `artifacts/load/pool-24h.log`. It asserts the §10 budgets—process CPU share ≤0.2 % of one core and RSS ≤15 MiB—while verifying the observed duty cycle stays within ±2 % of the configured target. CI publishes the same log via `.github/workflows/load.yml`, which runs nightly and on demand (`workflow_dispatch`) so the results remain auditable alongside regular coverage and lint jobs.
+
 ## §11 Coverage Workflow
 
 Follow this loop to keep the repository above the CI-required 85 percent statement coverage floor (§14):
