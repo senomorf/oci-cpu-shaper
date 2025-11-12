@@ -79,6 +79,10 @@ func (c *monitoringClient) QueryP95CPU(ctx context.Context, resourceID string) (
 		_ = resp.Body.Close()
 	}()
 
+	if resp.StatusCode == http.StatusNoContent {
+		return 0, oci.ErrNoMetricsData
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, responseBodyLimit))
 		if len(body) == 0 {
