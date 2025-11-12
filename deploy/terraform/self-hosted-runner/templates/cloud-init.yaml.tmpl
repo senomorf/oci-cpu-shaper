@@ -1,0 +1,100 @@
+#cloud-config
+ssh_pwauth: false
+disable_root: true
+package_update: true
+package_upgrade: true
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - docker.io
+  - git
+  - jq
+  - unzip
+  - ufw
+users:
+  - name: ${admin_username}
+    gecos: GitHub Actions Runner
+    groups: [sudo, docker]
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    shell: /bin/bash
+    lock_passwd: true
+    create_groups: true
+    ssh_authorized_keys: []
+write_files:
+  - path: /usr/local/bin/bootstrap-runner.sh
+    permissions: '0750'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      RUNNER_VERSION="${runner_version}"
+      RUNNER_ROOT="/opt/actions-runner"
+      RUNNER_URL="${github_url}"
+      RUNNER_NAME="${runner_name}"
+      RUNNER_LABELS="${runner_labels}"
+      RUNNER_SCOPE="${github_scope}"
+      RUNNER_TOKEN="${github_token}"
+      RUNNER_USER="${admin_username}"
+      EPHEMERAL="${configure_ephemeral}"
+
+      ARCH=$(uname -m)
+      case "${ARCH}" in
+        aarch64|arm64)
+          PACKAGE="actions-runner-linux-arm64-${runner_version}.tar.gz"
+          ;;
+        x86_64|amd64)
+          PACKAGE="actions-runner-linux-x64-${runner_version}.tar.gz"
+          ;;
+        *)
+          echo "Unsupported architecture: ${ARCH}" >&2
+          exit 1
+          ;;
+      esac
+
+      install_runner() {
+        mkdir -p "${RUNNER_ROOT}"
+        cd "${RUNNER_ROOT}"
+
+        if [ ! -f config.sh ]; then
+          curl -fsSL -o "${PACKAGE}" "https://github.com/actions/runner/releases/download/v${runner_version}/${PACKAGE}"
+          tar xzf "${PACKAGE}"
+          rm -f "${PACKAGE}"
+        fi
+
+        if [ -n "${RUNNER_TOKEN}" ]; then
+          CONFIG_ARGS=("--url" "${RUNNER_URL}" "--token" "${RUNNER_TOKEN}" "--name" "${RUNNER_NAME}" "--labels" "${RUNNER_LABELS}" "--unattended" "--replace" "--work" "_work")
+          if [ "${EPHEMERAL}" = "true" ]; then
+            CONFIG_ARGS+=("--ephemeral")
+          fi
+          if [ "${RUNNER_SCOPE}" = "org" ]; then
+            CONFIG_ARGS+=("--runnergroup" "Default")
+          fi
+
+          sudo -u "${RUNNER_USER}" ./config.sh "${CONFIG_ARGS[@]}"
+          ./svc.sh install "${RUNNER_USER}"
+          systemctl daemon-reload
+          ./svc.sh start
+        else
+          echo "Runner token missing; skipping registration" >&2
+          return 1
+        fi
+      }
+
+      install_runner
+
+      # Remove bootstrap script and token traces after registration.
+      shred -u "$0" || rm -f "$0"
+      sudo -u "${RUNNER_USER}" truncate -s0 "/home/${RUNNER_USER}/.bash_history" || true
+      truncate -s0 /root/.bash_history || true
+runcmd:
+  - systemctl enable --now docker
+  - usermod -aG docker ${admin_username}
+  - ufw --force reset
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw --force enable
+  - /usr/local/bin/bootstrap-runner.sh
+final_message: "OCI CPU Shaper self-hosted runner provisioned"

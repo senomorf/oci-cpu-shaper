@@ -4,6 +4,9 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+- Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
+- Scheduled `self-hosted` workflow exercising IMDS lookups, live `QueryP95CPU` calls via `hack/tools/p95query`, and Docker cgroup v2 behaviour on the OCI runner (§§4, 6, 11, 15).
+- Runner maintenance and secrets rotation guidance in §15 of `docs/08-development.md`, covering patch cadence, token refresh, and repository variables linked to the new workflow (§§8, 12, 15).
 - Dependabot automation covering Go modules, GitHub Actions, and container Dockerfiles with weekly/monthly cadences to keep CI and release dependencies current (§§11, 14).
 - Documented the §8.7 issue triage workflow so contributors can acknowledge, classify, and reproduce reports consistently across tooling and coverage expectations (§§8, 11, 12, 15).
 - Adaptive controller wiring from `cmd/shaper` to the OCI Monitoring client, estimator sampler, and worker pool, plus layered YAML + environment configuration for controller targets, cadences, worker counts, and HTTP binding (§§3.1, 5.2). Tests cover configuration decoding, environment overrides, and controller factory success/error paths to preserve the ≥85% coverage floor (§11).
