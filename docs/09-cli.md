@@ -31,6 +31,8 @@ controller:
   stepUp: 0.02
   stepDown: 0.01
   fallbackTarget: 0.25
+  goalLow: 0.23
+  goalHigh: 0.30
   interval: 1h
   relaxedInterval: 6h
   relaxedThreshold: 0.28
@@ -49,6 +51,11 @@ oci:
   instanceId: "ocid1.instance.oc1..example"
 ```
 
+- The repository publishes these defaults as ready-to-use manifests at
+  `configs/mode-a.yaml` and `configs/mode-b.yaml`. The Compose and Quadlet
+  manifests in §6 mount the matching file so Mode A (rootless) and Mode B
+  (rootful) stacks boot with the documented configuration when no overrides are
+  supplied.
 - `controller.*` mirrors the slow-loop thresholds from §3.1, including the one-hour cadence and relaxed six-hour interval when OCI P95 remains healthy. The fast-loop suppression settings (`suppressThreshold`, `suppressResume`) decide when estimator-driven contention drops the worker pool to zero and when work resumes after the host cools.
 - Validation now enforces that every slow-loop target or goal remains below both suppression thresholds, so manifests that would immediately re-trigger the fast loop are rejected with an exit status of `2` and a descriptive error message (§§3.1, 5.2).
 - `estimator.interval` controls the fast `/proc/stat` sampler cadence (§5.2) while the worker `pool` exposes quantum sizing that stays within the 1–5 ms duty-cycle budget.
@@ -80,6 +87,23 @@ The CLI honours the following environment variables, matching the naming in §5.
 | `OCI_OFFLINE` | Enables the static metrics client and metadata fallback described above so smoke tests can bootstrap without IMDS or Monitoring access. | `false` |
 
 Unset or malformed overrides fall back to the defaults shown above.
+
+### Layering overrides
+
+Environment variables sit on top of the YAML file, so operators can mount
+`configs/mode-a.yaml` or `configs/mode-b.yaml` verbatim and then tune specific
+thresholds without editing the manifest. For example:
+
+```bash
+SHAPER_TARGET_START=0.28 SHAPER_SUPPRESS_THRESHOLD=0.90 \
+  SHAPER_SUPPRESS_RESUME=0.75 \
+  shaper --config /etc/oci-cpu-shaper/config.yaml --mode enforce
+```
+
+Compose deployments use the `SHAPER_ENV_FILE` hook described in §6 to inject the
+same overrides. Each line follows the shell `KEY=value` syntax, so adding
+`SHAPER_TARGET_MAX=0.45` in `deploy/compose/mode-a.env.example` produces the
+same runtime effect as exporting the variable directly.
 
 ## 9.4 Diagnostics
 
