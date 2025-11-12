@@ -23,6 +23,7 @@ The repository includes a `Makefile` that wraps the most common development task
 | `make check` | Run linting and race-enabled tests in one step. |
 | `make coverage` | Generate a race-enabled coverage profile for production packages, save `coverage.out`/`coverage.txt`, and print the total percentage (CI enforces ≥85%). |
 | `make integration` | Ensure Docker is reachable, validate cgroup v2, and run the CPU weight responsiveness suite while teeing logs to `artifacts/integration.log` for post-run inspection (§§6, 11). |
+| `make e2e` | Build the CLI with the `e2e` tag and exercise the IMDS/Monitoring emulation suite described in §11.3 so offline/online flows and metrics wiring stay covered. |
 | `make govulncheck` | Scan the module and all packages with `golang.org/x/vuln/cmd/govulncheck@v1.1.4`, failing on known Go vulnerabilities before changes ship (§14). |
 | `make build` | Compile all packages to validate build readiness. |
 
@@ -67,6 +68,10 @@ Rootful experiments using `deploy/compose/mode-b.rootful.yaml` or the matching Q
 End-to-end responsiveness tests live under `tests/integration/` and run with the `integration` build tag. They build the rootful container image, compile a static CPU hog helper, and launch the image alongside an `alpine` competitor constrained to the same CPU. The harness measures each container's `cpu.weight` and `cpu.stat` usage to assert the heavier workload receives at least five times the CPU time, ensuring the runtime honours the responsiveness guarantees described in §§5, 9, and 11.
 
 Run the suite on a Linux host with Docker or Podman configured for cgroup v2 (verify with `docker info --format '{{.CgroupVersion}}'` or by checking `/sys/fs/cgroup/cgroup.controllers` for the `cpu` entry). Because the harness builds and runs containers locally, execute it from the repository root with elevated privileges when necessary. The `make integration` helper mirrors the CI workflow: it refuses to run unless Docker is reachable, enforces cgroup v2, and tees verbose output to `artifacts/integration.log`, removing the log directory on success while preserving it after failures for debugging (§§6, 11). Developers who need finer control can still invoke `go test -tags=integration -v ./tests/integration/...`, but the Makefile target should be preferred so local runs collect the same diagnostics as CI. When iterating locally, rerun the suite after modifying container entrypoints, CPU-tuning flags, or workload scripts to preserve the CI-required ≥85% coverage baseline while keeping responsiveness guardrails intact.
+
+## §11.3 CLI E2E Suite
+
+`tests/e2e/` hosts an end-to-end harness that wires the packaged CLI against fake IMDS and OCI Monitoring servers. The suite compiles `cmd/shaper` with the `e2e` build tag so the binary reads `OCI_CPU_SHAPER_E2E_MONITORING_ENDPOINT`, logs controller state transitions, and surfaces the `/metrics` snapshot while the mocks replay deterministic metadata. `make e2e` wraps the workflow: it builds the tagged binary, runs `go test -tags=e2e ./tests/e2e/...`, and exercises both offline and online controller bootstraps to confirm structured logs, IMDS lookups, and metrics output stay aligned with §§5 and 9. Developers can also invoke the command manually when iterating on the helpers or suite layout. Keep the harness fast—each run should finish within a few seconds—and extend it alongside CLI wiring changes so the ≥85% coverage target remains intact and the observability story stays verifiable locally and in CI (§§11, 14).
 
 ## §11.4 Load Test Harness
 

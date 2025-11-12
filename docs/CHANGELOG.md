@@ -4,6 +4,7 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+- CLI emulation suite under `tests/e2e/` gated by the `e2e` build tag, complete with reusable IMDS/Monitoring mocks and `make e2e` helper so offline/online controller flows, metrics output, and structured state-transition logs stay verifiable in CI and locally (§§5, 9, 11).
 - Rootful worker pools compiled with `-tags rootful` now request Linux
   `SCHED_IDLE` scheduling for each worker and emit a `worker failed to enter
   sched_idle` warning when the kernel rejects the downgrade (for example,

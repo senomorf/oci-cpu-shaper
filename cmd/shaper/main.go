@@ -116,18 +116,6 @@ var (
 	errMetricsContextRequired   = errors.New("metrics server: context is required")
 )
 
-func defaultRunDeps() runDeps {
-	return runDeps{
-		newLogger:          newLogger,
-		newIMDS:            defaultIMDSFactory,
-		newController:      defaultControllerFactory,
-		currentBuildInfo:   buildinfo.Current,
-		loadConfig:         loadConfig,
-		newMetricsExporter: metricshttp.NewExporter,
-		startMetricsServer: startMetricsServer,
-	}
-}
-
 func buildMetricsExporter(deps runDeps) *metricshttp.Exporter {
 	if deps.newMetricsExporter != nil {
 		exporter := deps.newMetricsExporter()
@@ -467,7 +455,7 @@ var (
 	errInvalidShutdownAfter = errors.New("invalid shutdown-after duration (must be >=0)")
 )
 
-//nolint:ireturn // factory intentionally hides controller implementation
+//nolint:ireturn // factory intentionally returns controller interface for wiring flexibility.
 func defaultControllerFactory(
 	ctx context.Context,
 	mode string,
@@ -699,7 +687,7 @@ func logStartup(logger *zap.Logger, info buildinfo.Info, opts options) {
 	logger.Info("starting oci-cpu-shaper", fields...)
 }
 
-//nolint:ireturn // wiring requires interface for factories.
+//nolint:ireturn // helper returns MetricsClient interface for dependency substitution.
 func createMetricsClient(
 	ctx context.Context,
 	cfg runtimeConfig,
@@ -775,16 +763,6 @@ func startMetricsServer(
 	return nil
 }
 
-//nolint:ireturn // factory returns interface for dependency substitution.
-func buildInstancePrincipalMetricsClient(compartmentID, region string) (oci.MetricsClient, error) {
-	client, err := oci.NewInstancePrincipalClient(compartmentID, region)
-	if err != nil {
-		return nil, fmt.Errorf("new instance principal client: %w", err)
-	}
-
-	return &instancePrincipalMetricsClient{client: client}, nil
-}
-
 type instancePrincipalMetricsClient struct {
 	client *oci.Client
 }
@@ -805,7 +783,7 @@ func (m *instancePrincipalMetricsClient) QueryP95CPU(
 	return float64(value), nil
 }
 
-//nolint:ireturn // returns interface to support substitutable IMDS clients
+//nolint:ireturn // factory returns interface to support substitutable IMDS clients.
 func defaultIMDSFactory() imds.Client {
 	endpoint := strings.TrimSpace(os.Getenv(imdsEndpointEnv))
 
