@@ -4,7 +4,9 @@ import "context"
 
 // NewStaticMetricsClient returns a MetricsClient that always reports the provided value.
 //
-
+// Tests and CLI wiring still depend on the interface return type.
+//
+//nolint:ireturn // static helper returns the MetricsClient interface for controller wiring.
 func NewStaticMetricsClient(value float64) MetricsClient {
 	return &staticMetricsClient{value: value}
 }

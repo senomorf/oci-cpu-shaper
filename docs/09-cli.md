@@ -88,6 +88,12 @@ Invalid flag values are rejected during argument parsing: unknown controller mod
 
 Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios. Offline mode keeps this wiring intact by substituting the static metrics client so container smoke tests can run without live tenancy credentials, and new unit coverage exercises the IMDS-backed region/compartment resolver plus its failure modes to keep the ≥85% statement coverage guarantee intact.
 
+Rootful binaries built with `-tags rootful` log a warning if the kernel rejects the
+`SCHED_IDLE` request emitted when the worker pool starts (§§6, 9). Hosts running
+the Compose or Quadlet stacks must grant `CAP_SYS_NICE`/`SYS_NICE` so the
+`worker failed to enter sched_idle` warning remains informational rather than a
+permanent indicator that the downgrade could not be applied.
+
 ## 9.5 Metrics Exporter
 
 - `cmd/shaper` now instantiates the lightweight OpenMetrics exporter from `pkg/http/metrics` and binds it to `/metrics` on the address supplied via `http.bind`/`HTTP_ADDR`, mirroring the observability wiring outlined in §§5.2 and 9.

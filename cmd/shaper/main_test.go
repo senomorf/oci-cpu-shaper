@@ -1612,6 +1612,8 @@ func (s *stubPoolStarter) Quantum() time.Duration {
 	return s.quantum
 }
 
+func (*stubPoolStarter) SetWorkerStartErrorHandler(func(error)) {}
+
 type stubMetricsAdapter struct{}
 
 func newStubMetricsClient() *stubMetricsAdapter {

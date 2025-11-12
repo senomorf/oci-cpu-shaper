@@ -76,6 +76,7 @@ type poolStarter interface {
 	Start(ctx context.Context)
 	Workers() int
 	Quantum() time.Duration
+	SetWorkerStartErrorHandler(handler func(err error))
 }
 
 type metricsClientFactory func(compartmentID, region string) (oci.MetricsClient, error)
@@ -165,10 +166,15 @@ func configureMetrics(
 	return deps.startMetricsServer(ctx, logger, cfg.HTTP.Bind, mux)
 }
 
-// run orchestrates the CLI wiring lifecycle from configuration loading through controller execution.
+// run orchestrates CLI initialization before handing execution to the controller.
 //
-//nolint:funlen // the sequential startup/shutdown flow reads clearer in a single function.
-func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int {
+//nolint:funlen // CLI wiring composes setup steps before controller execution
+func run(
+	ctx context.Context,
+	args []string,
+	deps runDeps,
+	stderr io.Writer,
+) int {
 	opts, err := parseArgs(args)
 	if err != nil {
 		return writeError(stderr, err, exitCodeParseError)
@@ -228,6 +234,14 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	}
 
 	if pool != nil {
+		pool.SetWorkerStartErrorHandler(func(err error) {
+			if err == nil {
+				return
+			}
+
+			logger.Warn("worker failed to enter sched_idle", zap.Error(err))
+		})
+
 		pool.Start(ctx)
 	}
 

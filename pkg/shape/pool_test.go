@@ -3,11 +3,14 @@ package shape
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+var errTestSchedIdleDenied = errors.New("sched idle denied")
 
 func TestPoolAppliesDutyCycle(t *testing.T) {
 	t.Parallel()
@@ -139,5 +142,132 @@ func TestBusyWaitHandlesDurations(t *testing.T) {
 
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Fatalf("busyWait exceeded expected duration, took %v", elapsed)
+	}
+}
+
+func TestPoolWorkerStartHookSuccess(t *testing.T) {
+	t.Parallel()
+
+	const workers = 3
+
+	pool, err := NewPool(workers, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var (
+		hookCount        atomic.Int32
+		handlerCount     atomic.Int32
+		workerStartGroup sync.WaitGroup
+	)
+
+	workerStartGroup.Add(workers)
+
+	pool.workerStartHook = func() error {
+		hookCount.Add(1)
+		workerStartGroup.Done()
+
+		return nil
+	}
+	pool.workerStartErrorHandler = func(error) {
+		handlerCount.Add(1)
+	}
+	pool.sleepFunc = func(time.Duration) {}
+	pool.yieldFunc = func() {}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool.Start(ctx)
+
+	done := make(chan struct{})
+
+	go func() {
+		workerStartGroup.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatalf("timeout waiting for worker start hook")
+	}
+
+	cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	if got := hookCount.Load(); got != workers {
+		t.Fatalf("expected hook count %d, got %d", workers, got)
+	}
+
+	if got := handlerCount.Load(); got != 0 {
+		t.Fatalf("expected no error handler invocations, got %d", got)
+	}
+}
+
+//nolint:funlen // integration-style test ensures handler runs per worker
+func TestPoolWorkerStartHookErrorPropagates(t *testing.T) {
+	t.Parallel()
+
+	const workers = 2
+
+	pool, err := NewPool(workers, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var (
+		hookCount    atomic.Int32
+		handlerCount atomic.Int32
+	)
+
+	hookErr := errTestSchedIdleDenied
+
+	var handlerWG sync.WaitGroup
+	handlerWG.Add(workers)
+
+	pool.workerStartHook = func() error {
+		hookCount.Add(1)
+
+		return hookErr
+	}
+	pool.workerStartErrorHandler = func(err error) {
+		if !errors.Is(err, hookErr) {
+			t.Errorf("unexpected error propagated: %v", err)
+		}
+
+		handlerCount.Add(1)
+		handlerWG.Done()
+	}
+	pool.sleepFunc = func(time.Duration) {}
+	pool.yieldFunc = func() {}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool.Start(ctx)
+
+	done := make(chan struct{})
+
+	go func() {
+		handlerWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatalf("timeout waiting for worker start error handler")
+	}
+
+	cancel()
+	time.Sleep(2 * time.Millisecond)
+
+	if got := hookCount.Load(); got != workers {
+		t.Fatalf("expected hook count %d, got %d", workers, got)
+	}
+
+	if got := handlerCount.Load(); got != workers {
+		t.Fatalf("expected handler count %d, got %d", workers, got)
 	}
 }

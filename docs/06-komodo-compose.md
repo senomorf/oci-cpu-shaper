@@ -58,7 +58,12 @@ quota. Tweak `SHAPER_CAP_SYS_NICE` or `SHAPER_CPUS` in
 The rootful stack pins `network_mode: host` so Prometheus scraping reuses the
 node’s address. Override `SHAPER_NETWORK_MODE` when a bridge network is
 preferable, and adjust `SHAPER_RESTART_POLICY` if the Docker daemon should stop
-restarting the container after failures.
+restarting the container after failures. Rootful builds compiled with
+`-tags rootful` now ask the kernel for `SCHED_IDLE` scheduling on each worker
+thread as soon as the pool starts (§6.2). The Compose manifest already grants
+`SYS_NICE`, which is required to let the kernel honour the request; when the
+capability is missing the controller logs `worker failed to enter sched_idle`
+at `warn` level and continues without downgrading the scheduler policy.
 
 Bring the Mode B stack up with:
 
