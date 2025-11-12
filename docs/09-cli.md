@@ -8,6 +8,20 @@ The `shaper` binary delivers a thin orchestration layer that connects configurat
 shaper --config /etc/oci-cpu-shaper/config.yaml --log-level info --mode enforce
 ```
 
+When only build metadata is required, the CLI also exposes a fast-exit flag and
+subcommand:
+
+```bash
+shaper --version
+# {Version:1.2.3 GitCommit:abc123 BuildDate:2024-06-01}
+
+shaper version
+```
+
+Both forms print the struct returned by `internal/buildinfo.Current()` without
+loading configuration or initialising the logger, keeping diagnostics scripts
+and packaging checks lightweight (§5.2).
+
 Three foundational flags align with §§3.1 and 5.2 of the implementation plan:
 
 | Flag | Description | Default |

@@ -4,6 +4,9 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+- `shaper --version`/`shaper version` commands that print the embedded build
+  metadata without initialising configuration or logging, plus unit coverage to
+  ensure the fast-exit path leaves existing logger wiring untouched (§§5, 9).
 - Configuration samples `configs/mode-a.yaml`/`configs/mode-b.yaml` that ship the
   documented goal band, suppression thresholds, and HTTP bind defaults, plus CLI
   tests to ensure they load without overrides. §9 now links the manifests and

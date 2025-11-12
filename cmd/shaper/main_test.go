@@ -168,6 +168,32 @@ func TestParseArgsTrimSpaces(t *testing.T) {
 	}
 }
 
+func TestParseArgsVersionFlag(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseArgs([]string{"--version"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	if !opts.showVersion {
+		t.Fatal("expected showVersion to be true when --version is provided")
+	}
+}
+
+func TestParseArgsVersionSubcommand(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseArgs([]string{"version"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	if !opts.showVersion {
+		t.Fatal("expected showVersion to be true when version subcommand is provided")
+	}
+}
+
 func TestParseArgsReturnsFlagError(t *testing.T) {
 	t.Parallel()
 
@@ -181,6 +207,61 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 		// Accept either standard flag error or ErrHelp depending on flag parsing behavior.
 		t.Fatalf("unexpected error type: %v", err)
 	}
+}
+
+func assertRunVersionPrints(t *testing.T, args []string, info buildinfo.Info) {
+	t.Helper()
+
+	var stdout bytes.Buffer
+
+	original := versionOutput
+	versionOutput = &stdout
+
+	t.Cleanup(func() {
+		versionOutput = original
+	})
+
+	deps := defaultRunDeps()
+	deps.newLogger = func(string) (*zap.Logger, error) {
+		panic("newLogger should not be called when printing version")
+	}
+	deps.loadConfig = func(string) (runtimeConfig, error) {
+		panic("loadConfig should not be called when printing version")
+	}
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return info
+	}
+
+	exitCode := run(t.Context(), args, deps, io.Discard)
+	if exitCode != exitCodeSuccess {
+		t.Fatalf("expected exit code %d, got %d", exitCodeSuccess, exitCode)
+	}
+
+	expected := fmt.Sprintf(
+		"{Version:%s GitCommit:%s BuildDate:%s}\n",
+		info.Version,
+		info.GitCommit,
+		info.BuildDate,
+	)
+	if stdout.String() != expected {
+		t.Fatalf("expected stdout %q, got %q", expected, stdout.String())
+	}
+}
+
+func TestRunVersionFlagPrintsBuildInfo(t *testing.T) {
+	t.Parallel()
+
+	info := stubBuildInfo("1.2.3", "commit-hash", "2024-06-01")
+
+	assertRunVersionPrints(t, []string{"--version"}, info)
+}
+
+func TestRunVersionSubcommandPrintsBuildInfo(t *testing.T) {
+	t.Parallel()
+
+	info := stubBuildInfo("0.0.1", "deadbeef", "2024-07-04")
+
+	assertRunVersionPrints(t, []string{"version"}, info)
 }
 
 //nolint:funlen // integration-style test exercises end-to-end wiring.
