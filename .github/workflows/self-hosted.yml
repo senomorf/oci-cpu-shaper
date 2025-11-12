@@ -1,0 +1,115 @@
+name: Self-hosted Runner Validation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    name: OCI self-hosted checks
+    runs-on:
+      - self-hosted
+      - oci-free-tier
+    timeout-minutes: 30
+    env:
+      OCI_CLI_AUTH: instance_principal
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Collect IMDS metadata
+        id: imds
+        run: |
+          set -euo pipefail
+
+          header="Authorization: Bearer Oracle"
+          base_url="http://169.254.169.254/opc/v2"
+
+          instance_json=$(curl -sS -H "$header" "$base_url/instance/")
+          region_json=$(curl -sS -H "$header" "$base_url/regionInfo/")
+          vnic_json=$(curl -sS -H "$header" "$base_url/vnics/0/")
+
+          echo "instance=$instance_json"
+          echo "region=$region_json"
+          echo "vnic=$vnic_json"
+
+          instance_id=$(echo "$instance_json" | jq -r '.id')
+          compartment_id=$(echo "$instance_json" | jq -r '.compartmentId')
+          canonical_region=$(echo "$instance_json" | jq -r '.canonicalRegionName // ""')
+          fallback_region=$(echo "$region_json" | jq -r '.regionIdentifier // ""')
+
+          if [ -z "$instance_id" ] || [ "$instance_id" = "null" ]; then
+            echo "::error::IMDS instance payload did not contain an id"
+            exit 1
+          fi
+
+          if [ -z "$compartment_id" ] || [ "$compartment_id" = "null" ]; then
+            echo "::error::IMDS instance payload did not contain a compartmentId"
+            exit 1
+          fi
+
+          region="$canonical_region"
+          if [ -z "$region" ] || [ "$region" = "null" ]; then
+            region="$fallback_region"
+          fi
+
+          if [ -z "$region" ] || [ "$region" = "null" ]; then
+            echo "::error::Unable to determine region from IMDS"
+            exit 1
+          fi
+
+          echo "instance-ocid=$instance_id" >> "$GITHUB_OUTPUT"
+          echo "compartment-ocid=$compartment_id" >> "$GITHUB_OUTPUT"
+          echo "region=$region" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Query Monitoring for P95 CPU
+        env:
+          INSTANCE_OCID: ${{ steps.imds.outputs.instance-ocid }}
+          COMPARTMENT_OCID: ${{ steps.imds.outputs.compartment-ocid }}
+          OCI_REGION: ${{ steps.imds.outputs.region }}
+          ALLOW_EMPTY: ${{ vars.SELF_HOSTED_ALLOW_EMPTY_METRICS || 'false' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$INSTANCE_OCID" ] || [ -z "$COMPARTMENT_OCID" ]; then
+            echo "::error::Missing instance or compartment identifiers"
+            exit 1
+          fi
+
+          args=(
+            -instance "$INSTANCE_OCID"
+            -compartment "$COMPARTMENT_OCID"
+            -region "$OCI_REGION"
+            -timeout 45s
+          )
+
+          if [ "$ALLOW_EMPTY" = "true" ]; then
+            args+=( -allow-empty )
+          fi
+
+          go run ./hack/tools/p95query "${args[@]}"
+
+      - name: Validate Docker cgroup v2 behaviour
+        run: |
+          set -euo pipefail
+
+          version=$(docker info --format '{{.CgroupVersion}}')
+          echo "Detected cgroup version: $version"
+          if [ "$version" != "2" ]; then
+            echo "::error::Expected Docker to run with cgroup v2"
+            exit 1
+          fi
+
+          docker pull --quiet alpine:3.20
+          docker run --rm alpine:3.20 sh -c 'cat /sys/fs/cgroup/cgroup.controllers'
+          docker run --rm --cpus=0.5 alpine:3.20 sh -c "echo cpu.max=\$(cat /sys/fs/cgroup/cpu.max) cpu.weight=\$(cat /sys/fs/cgroup/cpu.weight)"
