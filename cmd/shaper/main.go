@@ -60,6 +60,7 @@ type runDeps struct {
 
 type poolStarter interface {
 	Start(ctx context.Context)
+	SetWorkerStartErrorHandler(func(error))
 }
 
 type metricsClientFactory func(compartmentID, region string) (oci.MetricsClient, error)
@@ -153,6 +154,14 @@ func run(ctx context.Context, args []string, deps runDeps, stderr io.Writer) int
 	}
 
 	if pool != nil {
+		pool.SetWorkerStartErrorHandler(func(err error) {
+			if err == nil {
+				return
+			}
+
+			logger.Warn("worker failed to enter sched_idle", zap.Error(err))
+		})
+
 		pool.Start(ctx)
 	}
 

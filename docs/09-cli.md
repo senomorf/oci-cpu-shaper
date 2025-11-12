@@ -87,3 +87,9 @@ At startup the binary emits a structured log line containing build metadata deri
 Invalid flag values are rejected during argument parsing: unknown controller modes surface an error and cause the program to exit with status `2`, unsupported log levels report a structured error before the logger is constructed, and negative `--shutdown-after` durations are rejected. This keeps early runs predictable while new policy engines are still being prototyped.
 
 Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios. Offline mode keeps this wiring intact by substituting the static metrics client so container smoke tests can run without live tenancy credentials, and new unit coverage exercises the IMDS-backed region/compartment resolver plus its failure modes to keep the ≥85% statement coverage guarantee intact.
+
+Rootful binaries built with `-tags rootful` log a warning if the kernel rejects the
+`SCHED_IDLE` request emitted when the worker pool starts (§§6, 9). Hosts running
+the Compose or Quadlet stacks must grant `CAP_SYS_NICE`/`SYS_NICE` so the
+`worker failed to enter sched_idle` warning remains informational rather than a
+permanent indicator that the downgrade could not be applied.

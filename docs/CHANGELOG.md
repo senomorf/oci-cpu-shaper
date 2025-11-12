@@ -3,7 +3,13 @@
 ## Unreleased
 
 ### Added
-_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+- Rootful worker pools compiled with `-tags rootful` now request Linux
+  `SCHED_IDLE` scheduling for each worker and emit a `worker failed to enter
+  sched_idle` warning when the kernel rejects the downgrade (for example,
+  missing `CAP_SYS_NICE`/`SYS_NICE`). Dependency-injected unit tests stub
+  `unix.SchedSetScheduler` to cover success and EPERM denial paths, preserving
+  the §11.1 coverage contract while documenting the new behaviour in §§6 and 9.
 - Regression suite `TestControllerCpuUtilisationAcrossOCPUs` covering 1–4 OCPU CpuUtilization streams and the relaxed-interval clamp so the adaptive controller keeps the Always Free reclaim guardrails documented in §§3.1 and 5.2. Tests maintain the ≥85% statement floor by exercising the prolonged high-utilisation path in `pkg/adapt/controller.go` (§11).
 - Deterministic 24-hour-equivalent worker-pool load harness (`go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent`) that logs CPU/RSS telemetry to `artifacts/load/pool-24h.log` and enforces the §10 budgets alongside nightly/manual CI coverage via `.github/workflows/load.yml` (§§10, 11.4).
 - Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
