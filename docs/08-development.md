@@ -100,6 +100,17 @@ git config core.hooksPath .githooks
 
 The `.githooks/pre-push` script executes `make fmt` and `make lint`, aborting the push if formatting changes are required or linting fails. Remove or customize the hook as needed for your workflow.
 
+## §15 Self-Hosted Runner Maintenance
+
+The Always Free runner that backs the `self-hosted` workflow ships from the Terraform stack in `deploy/terraform/self-hosted-runner/`. Keep it healthy by following this cadence:
+
+- **Monthly patch window.** Connect over SSH using the dedicated maintenance key, run `sudo apt update && sudo apt full-upgrade`, and reboot with `sudo systemctl reboot`. After the host returns, confirm Docker reaches cgroup v2 with `docker info --format '{{.CgroupVersion}}'` before re-enabling the workflow (§§4, 6).
+- **GitHub registration tokens.** The bootstrap script consumes an ephemeral token at provision time. Regenerate a token on every maintenance session (`gh api repos/{owner}/{repo}/actions/runners/registration-token --jq .token`) and export it as `TF_VAR_runner_registration_token` before reapplying Terraform so the unit re-registers. Tokens expire after one hour, so avoid storing them outside secure shells (§§8, 15).
+- **Secrets and variables.** Repository-level configuration uses `vars.SELF_HOSTED_ALLOW_EMPTY_METRICS` to decide whether the validation workflow tolerates empty Monitoring windows. Review the value quarterly—leave it `false` unless Monitoring gaps are expected during scheduled downtime. No long-lived credentials live on the instance; IAM policies limit instance-principal access to the test compartments supplied via `test_compartment_ocids` (§§5, 8).
+- **Runner service.** During maintenance stop workloads with `sudo systemctl stop actions.runner*`, run Terraform or token rotation tasks, then restart via `sudo systemctl start actions.runner*`. The service logs live under `/opt/actions-runner/_diag/`; rotate them with `sudo find /opt/actions-runner/_diag -type f -mtime +7 -delete` to conserve the Always Free disk budget (§§6, 11).
+
+The scheduled workflow (`.github/workflows/self-hosted.yml`) validates IMDS connectivity, instance-principal `QueryP95CPU` access via `hack/tools/p95query`, and container behaviour against cgroup v2 every six hours. Investigate failures promptly—they usually signal that the IAM policies, Docker service, or Monitoring permissions have drifted from the Terraform definition.
+
 ## §8.4 Scoped AGENTS Policy
 
 Create or update scoped `AGENTS.md` files whenever a directory needs guidance that differs from or expands on the repository root instructions. Keep each file tightly focused on actionable rules for that directory tree, and prefer linking to canonical docs (such as this development guide) instead of duplicating prose. When refactoring or adding new areas of the codebase, audit existing scopes, remove obsolete guidance, and consolidate overlapping notes so the instructions stay concise and discoverable. Run `make agents` before submitting changes to confirm every Go package directory inherits the appropriate guidance and that scope headers match the directory layout.
