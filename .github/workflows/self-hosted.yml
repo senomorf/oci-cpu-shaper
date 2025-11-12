@@ -113,3 +113,183 @@ jobs:
           docker pull --quiet alpine:3.20
           docker run --rm alpine:3.20 sh -c 'cat /sys/fs/cgroup/cgroup.controllers'
           docker run --rm --cpus=0.5 alpine:3.20 sh -c "echo cpu.max=\$(cat /sys/fs/cgroup/cpu.max) cpu.weight=\$(cat /sys/fs/cgroup/cpu.weight)"
+
+      - name: Build rootful integration image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --target rootful \
+            -t oci-cpu-shaper:integration-rootful \
+            -f deploy/Dockerfile \
+            .
+
+      - name: Exercise CPU weight containers and collect cgroup stats
+        env:
+          LOG_ROOT: ${{ github.workspace }}/artifacts/self-hosted-cgroup
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$LOG_ROOT"
+          run_dir="$LOG_ROOT/run-$(date --utc +%Y%m%dT%H%M%SZ)"
+          mkdir -p "$run_dir"
+
+          tmpdir=$(mktemp -d)
+          hog_binary="$tmpdir/cpu-hog"
+          high_name=""
+          low_name=""
+
+          cleanup() {
+            status=$?
+            set +e
+            for name in "$high_name" "$low_name"; do
+              if [ -n "$name" ]; then
+                docker logs "$name" >"$run_dir/${name}.log" 2>&1 || true
+                docker rm -f "$name" >/dev/null 2>&1 || true
+              fi
+            done
+            rm -rf "$tmpdir"
+            exit $status
+          }
+          trap cleanup EXIT
+
+          echo "Building cpu-hog helper"
+          GOARCH=$(go env GOARCH)
+          CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build -o "$hog_binary" ./tests/integration/cmd/cpu-hog
+
+          high_name="cpu-weight-high-$(date +%s%N)"
+          low_name="cpu-weight-low-$(date +%s%N)"
+
+          echo "Launching high weight container: $high_name"
+          docker run \
+            --detach \
+            --name "$high_name" \
+            --cpuset-cpus=0 \
+            --cpu-shares 1024 \
+            -v "$hog_binary:/hog:ro" \
+            --entrypoint /hog \
+            alpine:3.20 \
+            -duration=40s \
+            -workers=1
+
+          echo "Launching low weight container: $low_name"
+          docker run \
+            --detach \
+            --name "$low_name" \
+            --cpuset-cpus=0 \
+            --cpu-shares 2 \
+            -v "$hog_binary:/hog:ro" \
+            --entrypoint /hog \
+            oci-cpu-shaper:integration-rootful \
+            -duration=40s \
+            -workers=1
+
+          wait_for_running() {
+            local name=$1
+            local deadline=$((SECONDS + 45))
+            while [ $SECONDS -lt $deadline ]; do
+              if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || echo false)" = "true" ]; then
+                return 0
+              fi
+              sleep 1
+            done
+            echo "::error::container $name did not reach running state" >&2
+            docker ps -a >&2 || true
+            return 1
+          }
+
+          wait_for_running "$high_name"
+          wait_for_running "$low_name"
+
+          echo "Allowing workloads to collect CPU usage"
+          sleep 30
+
+          record_stats() {
+            local name=$1
+            local pid
+            pid=$(docker inspect -f '{{.State.Pid}}' "$name")
+            if [ -z "$pid" ] || [ "$pid" = "0" ]; then
+              echo "::error::container $name reported invalid pid: $pid" >&2
+              return 1
+            fi
+
+            local rel_path
+            rel_path=$(awk -F: '$1=="0" {print $3}' "/proc/$pid/cgroup")
+            if [ -z "$rel_path" ]; then
+              echo "::error::unable to resolve cgroup path for $name (pid $pid)" >&2
+              return 1
+            fi
+
+            local cg_path="/sys/fs/cgroup${rel_path}"
+            if [ ! -d "$cg_path" ]; then
+              echo "::error::cgroup path $cg_path missing for $name" >&2
+              return 1
+            fi
+
+            cat "$cg_path/cpu.stat" >"$run_dir/${name}-cpu.stat"
+            cat "$cg_path/cpu.weight" >"$run_dir/${name}-cpu.weight"
+            if [ -f "$cg_path/cpu.max" ]; then
+              cat "$cg_path/cpu.max" >"$run_dir/${name}-cpu.max"
+            fi
+            printf '%s %s\n' "$name" "$cg_path" >>"$run_dir/cgroup-paths.txt"
+          }
+
+          record_stats "$high_name"
+          record_stats "$low_name"
+
+          parse_usage() {
+            awk '/usage_usec/ {print $2; exit}' "$run_dir/$1-cpu.stat"
+          }
+
+          parse_weight() {
+            tr -d '\n' <"$run_dir/$1-cpu.weight"
+          }
+
+          high_usage=$(parse_usage "$high_name")
+          low_usage=$(parse_usage "$low_name")
+          high_weight=$(parse_weight "$high_name")
+          low_weight=$(parse_weight "$low_name")
+
+          echo "High weight usage (µs): $high_usage (weight=$high_weight)" | tee "$run_dir/${high_name}-summary.txt"
+          echo "Low weight usage (µs): $low_usage (weight=$low_weight)" | tee "$run_dir/${low_name}-summary.txt"
+
+          if [ -z "$high_weight" ] || [ -z "$low_weight" ]; then
+            echo "::error::missing cpu.weight data" >&2
+            exit 1
+          fi
+
+          if [ "$high_weight" -le "$low_weight" ]; then
+            echo "::error::expected high weight container to exceed low weight" >&2
+            exit 1
+          fi
+
+          if [ -z "$high_usage" ] || [ -z "$low_usage" ] || [ "$low_usage" = "0" ]; then
+            echo "::error::missing cpu usage data" >&2
+            exit 1
+          fi
+
+          ratio=$(python - "$high_usage" "$low_usage" <<'PY'
+import decimal
+import sys
+
+high = decimal.Decimal(sys.argv[1])
+low = decimal.Decimal(sys.argv[2])
+ratio = high / low
+
+if ratio < decimal.Decimal('5.0'):
+    sys.stderr.write(f"::error::expected high weight container to receive at least 5.0x CPU time (got {ratio:.2f}x)\n")
+    sys.exit(1)
+
+print(ratio.quantize(decimal.Decimal('0.01')))
+PY
+          )
+          echo "Observed CPU usage ratio (high/low): $ratio" | tee "$run_dir/ratio.txt"
+          echo "CPU weight responsiveness verified"
+
+      - name: Upload self-hosted cgroup artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-hosted-cgroup-data
+          path: artifacts/self-hosted-cgroup
+          retention-days: 7
