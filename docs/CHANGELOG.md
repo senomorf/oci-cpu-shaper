@@ -4,6 +4,10 @@
 
 ### Added
 _Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+- Grafana dashboard export (`deploy/grafana/oci-cpu-shaper-dashboard.json`) covering OCI
+  P95, controller target/state, and host CPU overlays, plus §5.4 import instructions so
+  operators can wire the Prometheus feed into Grafana without rebuilding the charts (§§3,
+  5, 12).
 - `/healthz` status handler on the metrics listener that surfaces controller
   state plus the last OCI Monitoring and estimator errors as JSON; unit tests
   cover `pkg/http/status` and the offline CLI E2E now exercises the endpoint to

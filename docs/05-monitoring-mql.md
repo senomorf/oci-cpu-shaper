@@ -33,6 +33,20 @@ Offline smoke tests rely on `pkg/oci.NewStaticMetricsClient`, which implements t
 - **HTTP 401/403 responses** – Confirm the instance belongs to the dynamic group referenced by the policy and that the policy grants `read metrics` on the target compartment.
 - **HTTP 429/5xx responses** – The helper wraps the raw error so controllers can trigger retries or fall back to cached data. Validate regional connectivity and consider enabling per-request retry logic before escalating.
 
+## 5.4 Grafana dashboard setup
+
+Import `deploy/grafana/oci-cpu-shaper-dashboard.json` into Grafana to visualise the controller alongside the upstream OCI signal:
+
+1. Navigate to **Dashboards → New → Import** and upload the JSON file (or paste its contents). When prompted, map the `Prometheus` data source to the instance that scrapes the shaper’s `/metrics` endpoint.
+2. Select the shaper instance from the `Instance` drop-down. The dashboard filters all queries (for example, `oci_p95{instance="$instance"}`) to that target so multi-host deployments can reuse the same view.
+3. Review the built-in panels:
+   - **OCI CpuUtilization P95** – Tracks the tenancy-side percentile produced by `pkg/oci.Client.QueryP95CPU` to confirm Monitoring reads remain healthy (§5.2).
+   - **Shaper target duty cycle** – Charts the controller’s current worker target ratio emitted as `shaper_target_ratio`, helping correlate slow-loop adjustments with observed load.
+   - **Controller state timeline** – Uses the `shaper_state{state="<label>"}` series to highlight transitions between fallback, enforce, and suppressed modes.
+   - **Host CPU versus shaper target** – Overlays the `host_cpu_percent` estimator output with the target ratio so operators can verify reclaim pressure stays within the Always Free guardrails (§3.1).
+
+Grafana’s refresh interval defaults to 30 seconds in the export; adjust it to match the site’s Prometheus scrape cadence if the charts appear sparse.
+
 [^oci-monitoring-auth]: Oracle Cloud Infrastructure, "Ways to Access Oracle Cloud Infrastructure". <https://docs.oracle.com/en-us/iaas/Content/Identity/Concepts/whoisusingoci.htm#ways_access>
 [^oci-monitoring-endpoint]: Oracle Cloud Infrastructure, "Monitoring Endpoints". <https://docs.oracle.com/en-us/iaas/Content/Monitoring/Concepts/monitoringoverview.htm#endpoints>
 [^oci-monitoring-mql]: Oracle Cloud Infrastructure, "Monitoring Query Language (MQL) Reference". <https://docs.oracle.com/en-us/iaas/Content/Monitoring/Reference/mql.htm>
