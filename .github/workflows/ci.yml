@@ -3,6 +3,10 @@ name: CI
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
 
@@ -22,16 +26,45 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Restore Go build cache
+      - name: Cache Go build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-
+            ${{ runner.os }}-go-cache-
 
       - name: Verify AGENTS scopes
         run: make agents
+
+  fmt:
+    name: gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Cache Go build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cache-
+
+      - name: Run formatter
+        run: make fmt
+
+      - name: Ensure formatting is clean
+        run: git diff --exit-code
 
   lint:
     name: golangci-lint
@@ -48,19 +81,24 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Restore Go build cache
+      - name: Cache Go build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-
+            ${{ runner.os }}-go-cache-
+
+      - name: Cache golangci-lint workspace
+        uses: actions/cache@v4
+        with:
+          path: .cache/golangci
+          key: ${{ runner.os }}-golangci-${{ hashFiles('**/.golangci.yml', '**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-golangci-
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9.0.0
-        with:
-          version: v2.6.1
-          args: --timeout=5m
+        run: make lint
 
   govulncheck:
     name: govulncheck
@@ -74,26 +112,52 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Restore Go module cache
+      - name: Cache Go build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-mod-
+            ${{ runner.os }}-go-cache-
 
-      - name: Restore Go build cache
+      - name: Cache govulncheck database
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          path: .cache/govulncheck
+          key: ${{ runner.os }}-govulncheck-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-
+            ${{ runner.os }}-govulncheck-
 
       - name: Run govulncheck
         run: make govulncheck
 
-  test:
+  unit-test:
+    name: go test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Cache Go build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cache-
+
+      - name: Run test suite
+        run: make test
+
+  coverage:
     name: go test & coverage
     runs-on: ubuntu-latest
     steps:
@@ -108,13 +172,13 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Restore Go build cache
+      - name: Cache Go build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-
+            ${{ runner.os }}-go-cache-
 
       - name: Run coverage suite
         env:
@@ -122,6 +186,14 @@ jobs:
           COVERAGE_PROFILE: coverage.out
           COVERAGE_SUMMARY: coverage.txt
         run: make coverage MIN_COVERAGE=$MIN_COVERAGE COVERAGE_PROFILE=$COVERAGE_PROFILE COVERAGE_SUMMARY=$COVERAGE_SUMMARY
+
+      - name: Publish coverage summary
+        run: |
+          {
+            echo '### Coverage results';
+            echo;
+            cat coverage.txt;
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v5.0.0
@@ -235,13 +307,13 @@ jobs:
           cache-dependency-path: |
             go.sum
 
-      - name: Restore Go build cache
+      - name: Cache Go build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-build-
+            ${{ runner.os }}-go-cache-
 
       - name: Verify Docker cgroup version
         run: |
@@ -258,13 +330,13 @@ jobs:
           echo "Cgroup version: $version"
 
       - name: Run integration tests
+        env:
+          INTEGRATION_KEEP_LOGS: "1"
         run: |
           set -o errexit
           set -o nounset
           set -o pipefail
-          mkdir -p artifacts
-          touch artifacts/integration.log
-          go test -tags=integration -v ./tests/integration/... | tee artifacts/integration.log
+          make integration
 
       - name: Upload integration logs
         uses: actions/upload-artifact@v5.0.0
