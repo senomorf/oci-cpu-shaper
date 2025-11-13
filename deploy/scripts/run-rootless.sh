@@ -6,7 +6,7 @@ set -euo pipefail
 : "${SHAPER_CONFIG_PATH:=./configs/mode-a.yaml}"
 : "${SHAPER_MODE:=dry-run}"
 : "${SHAPER_LOG_LEVEL:=info}"
-: "${SHAPER_CPU_SHARES:=512}"
+: "${SHAPER_CPU_SHARES:=128}"
 : "${SHAPER_ENV_FILE:=}"  # optional env-file consumed by docker run
 
 run_args=(
