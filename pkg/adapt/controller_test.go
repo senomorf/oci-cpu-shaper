@@ -251,6 +251,31 @@ func runControllerScenario(t *testing.T, scenario controllerScenario) {
 	}
 }
 
+func TestAdaptiveControllerRecordsLastError(t *testing.T) {
+	t.Parallel()
+
+	metrics := newFakeMetrics([]metricResult{{value: 0, err: errOCIDown}})
+	shaper := newFakeShaper()
+	cfg := DefaultConfig()
+
+	controller, err := NewAdaptiveController(cfg, metrics, nil, shaper, nil)
+	if err != nil {
+		t.Fatalf("NewAdaptiveController: %v", err)
+	}
+
+	stepper, ok := any(controller).(controllerStepper)
+	if !ok {
+		t.Fatalf("controller does not expose stepper interface")
+	}
+
+	stepper.step(context.Background())
+
+	lastErr := controller.LastError()
+	if !errors.Is(lastErr, errOCIDown) {
+		t.Fatalf("expected last error to be errOCIDown, got %v", lastErr)
+	}
+}
+
 func TestConsumeEstimatorSuppression(t *testing.T) {
 	t.Parallel()
 
@@ -375,7 +400,9 @@ func TestAdaptiveControllerRunLifecycle(t *testing.T) {
 		done <- controller.Run(ctx)
 	}()
 
-	time.Sleep(20 * time.Millisecond)
+	waitFor(func() bool {
+		return controller.LastP95() != 0
+	}, 500*time.Millisecond)
 	cancel()
 
 	err = <-done
@@ -524,6 +551,22 @@ func requireNotZeroTime(t *testing.T, name string, value time.Time) {
 	}
 }
 
+func waitFor(cond func() bool, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if cond() {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			return
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestNewNoopController(t *testing.T) {
 	t.Parallel()
 
@@ -535,6 +578,40 @@ func TestNewNoopController(t *testing.T) {
 	err := ctrl.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if ctrl.State() != StateNormal {
+		t.Fatalf("expected noop controller state to be normal, got %v", ctrl.State())
+	}
+
+	if ctrl.LastError() != nil {
+		t.Fatalf("expected noop controller last error to be nil, got %v", ctrl.LastError())
+	}
+
+	if ctrl.LastEstimatorError() != nil {
+		t.Fatalf(
+			"expected noop controller estimator error to be nil, got %v",
+			ctrl.LastEstimatorError(),
+		)
+	}
+}
+
+func TestValidateConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+
+	err := ValidateConfig(cfg)
+	if err != nil {
+		t.Fatalf("ValidateConfig returned error for defaults: %v", err)
+	}
+
+	invalid := cfg
+	invalid.SuppressThreshold = 0.20
+
+	err = ValidateConfig(invalid)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
 	}
 }
 

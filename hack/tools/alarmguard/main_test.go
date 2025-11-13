@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/monitoring"
@@ -63,6 +64,85 @@ func TestQueryMatches(t *testing.T) {
 	if queryMatches(wrongInstance, instance) {
 		t.Fatalf("expected query with different resourceId to fail")
 	}
+}
+
+func TestParseConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := parseConfig([]string{
+		"-compartment", "ocid1.compartment.oc1..root",
+		"-metric-compartment", "ocid1.compartment.oc1..metrics",
+		"-instance", "ocid1.instance.oc1..guard",
+		"-region", "us-phoenix-1",
+		"-timeout", "45s",
+		"-require-destinations=false",
+		"-expected-pending", "PT30M",
+		"-expected-resolution", "5m",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig returned error: %v", err)
+	}
+
+	if cfg.CompartmentID != "ocid1.compartment.oc1..root" {
+		t.Fatalf("unexpected compartment: %s", cfg.CompartmentID)
+	}
+
+	if cfg.MetricCompartmentID != "ocid1.compartment.oc1..metrics" {
+		t.Fatalf("unexpected metric compartment: %s", cfg.MetricCompartmentID)
+	}
+
+	if cfg.InstanceID != "ocid1.instance.oc1..guard" {
+		t.Fatalf("unexpected instance: %s", cfg.InstanceID)
+	}
+
+	if cfg.Region != "us-phoenix-1" {
+		t.Fatalf("unexpected region: %s", cfg.Region)
+	}
+
+	if cfg.RequireDestinations {
+		t.Fatal("expected RequireDestinations to be false")
+	}
+
+	if cfg.Timeout != 45*time.Second {
+		t.Fatalf("unexpected timeout: %s", cfg.Timeout)
+	}
+
+	if cfg.ExpectedPending != "PT30M" {
+		t.Fatalf("unexpected expected pending: %s", cfg.ExpectedPending)
+	}
+
+	if cfg.ExpectedResolution != "5m" {
+		t.Fatalf("unexpected expected resolution: %s", cfg.ExpectedResolution)
+	}
+}
+
+func TestParseConfigValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing compartment", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := parseConfig(
+			[]string{"-instance", "ocid1.instance.oc1..guard", "-region", "us-ashburn-1"},
+		)
+		if !errors.Is(err, errCompartmentRequired) {
+			t.Fatalf("expected errCompartmentRequired, got %v", err)
+		}
+	})
+
+	t.Run("invalid timeout", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := parseConfig([]string{
+			"-compartment", "ocid1.compartment.oc1..root",
+			"-instance", "ocid1.instance.oc1..guard",
+			"-region", "us-ashburn-1",
+			"-timeout", "0s",
+		})
+		if !errors.Is(err, errTimeoutInvalid) {
+			t.Fatalf("expected errTimeoutInvalid, got %v", err)
+		}
+	})
 }
 
 func TestSummaryAndDetailMatches(t *testing.T) {
