@@ -33,7 +33,8 @@ Compose deployments for Mode A live in `deploy/compose/`. The rootless manifest
 - `SHAPER_IMAGE` – image tag (`oci-cpu-shaper:nonroot` by default).
 - `SHAPER_CONFIG_PATH` – host path to mount at `/etc/oci-cpu-shaper/config.yaml`.
 - `HTTP_ADDR` – overrides the Prometheus listener bind address (defaults to `:9108` and must match the exposed port below).
-- `SHAPER_CPU_SHARES` – defaults to `512` to align with rootless Docker engine expectations.
+- `SHAPER_CPU_SHARES` – defaults to `128`, matching the architecture plan’s low-weight guidance now that rootless Docker honours
+  delegated cgroup v2 CPU weights.
 - `SHAPER_MODE`/`SHAPER_LOG_LEVEL` – passed through as CLI arguments.
 
 Launch the stack with:
@@ -96,7 +97,7 @@ systemctl --user enable --now mode-b.rootful.container
 ## §6.5 Runtime scripts
 Two helper scripts under `deploy/scripts/` wrap `docker run`:
 
-- `run-rootless.sh` pins `--cpu-shares=${SHAPER_CPU_SHARES:-512}` and hardens the container with
+- `run-rootless.sh` pins `--cpu-shares=${SHAPER_CPU_SHARES:-128}` and hardens the container with
   read-only and `no-new-privileges` flags, wiring `${HTTP_ADDR:-:9108}` through to the
   container so the `/metrics` listener matches the published port mapping.
 - `run-rootful.sh` targets the `rootful` image, retaining the default `--cpu-shares=1024` while

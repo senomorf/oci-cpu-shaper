@@ -23,5 +23,5 @@ services:
       - ${SHAPER_METRICS_BIND:-127.0.0.1:9108}:9108
     security_opt:
       - no-new-privileges:true
-    cpu_shares: ${SHAPER_CPU_SHARES:-512}
+    cpu_shares: ${SHAPER_CPU_SHARES:-128}
     restart: "unless-stopped"
