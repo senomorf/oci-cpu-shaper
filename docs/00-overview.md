@@ -3,6 +3,7 @@
 The OCI CPU Shaper project provides tools for shaping and orchestrating CPU resource usage across Oracle Cloud Infrastructure workloads. The overarching goal is to offer adaptive scheduling, telemetry integration, and policy-driven controls that help teams right-size compute consumption while maintaining service quality.
 
 This overview summarizes the high-level vision and map to the supporting documentation set:
+Operators looking for the fastest onboarding path should start with the [Quick Start](./10-quick-start.md), which condenses the plan-mandated console tasks before diving into the deeper references below.
 
 - **Quick-start (forthcoming)** – Step-by-step bootstrap covering container images, Compose/Quadlet manifests, and smoke tests. This guide will land alongside the release noted in `docs/CHANGELOG.md`.
 - **IAM and Policies** – Configure dynamic groups and Monitoring permissions so instance principals can query tenancy metrics. See [`01-oci-policy.md`](./01-oci-policy.md).
