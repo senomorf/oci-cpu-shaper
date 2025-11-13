@@ -42,6 +42,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Go vulnerability scanning via `make govulncheck` and a dedicated CI job that restores module/build caches, failing pull requests when published advisories affect the dependency graph (§14).
 - CPU weight responsiveness integration suite with CI coverage on `ubuntu-latest` (cgroup v2) that exercises the container build alongside a competing workload and publishes verbose logs (§§6, 11).
 - Local `make integration` helper replicating the CI cgroup v2 guard, Docker availability checks, and log capture so contributors can rerun the CPU weight suite with artifact parity (§§6, 11).
+- Quick Start onboarding guide that condenses the five plan-mandated console steps and links to the IAM, Monitoring, Compose, and alarm references (§10).
 - Documentation refresh covering OCI IAM policy setup (§1), Always Free reclaim guardrails (§3), cgroup v2 tuning guidance (§4), and alarm workflows (§7), aligning `docs/` with the implementation plan’s required artifacts (§12).
 - `/metrics` exporter and Prometheus integration surfaced through the CLI, including emitted series, sample scrape output, and Compose/HTTP_ADDR wiring documented across §§4–9.
 
@@ -67,6 +68,6 @@ _Record coverage reductions or mitigations so reviewers can audit the CI ≥85% 
 - `make lint`/`make test` now create repository-local caches (`.cache/golangci` and `.cache/go`) and set `GOLANGCI_LINT_CACHE`/`GOCACHE` accordingly so the tools never write to protected runner directories; prefer using the Makefile helpers instead of invoking the linters or `go test` manually to keep sandbox runs stable (§14).
 - `.tool-versions` now pins `golangci-lint` v2.6.1 and `gofumpt` v0.9.2 so `mise`/`asdf` environments surface the same linting behaviour developers see in CI (§14).
 - `golangci-lint` now runs with depguard allow-listing for module imports and `issues.fix: true`, letting formatters auto-apply fixes while docs instruct contributors to stage the generated edits (§14).
-- Overview and Monitoring documentation now link to the IAM, reclaim, cgroup, and alarm guides so operators can navigate the consolidated Always Free playbook (§§0, 5).
+- Overview, README, and Monitoring documentation now link to the IAM, reclaim, cgroup, alarm, and Quick Start guides so operators can navigate the consolidated Always Free playbook (§§0, 5, 10).
 - Updated third-party Go modules (flock, gobreaker, testify, golang.org/x/{crypto,net,sys}) to their latest releases so the controller wiring, samplers, and tests stay aligned with upstream fixes (§§11, 14).
 - Reconfirmed all Go module requirements and GitHub Actions pins are on the latest stable releases, updating workflow actions to their freshest tags to keep CI and release automation current (§§11, 14).

@@ -1,6 +1,6 @@
 # OCI CPU Shaper
 
-OCI CPU Shaper is an emerging toolkit for shaping CPU utilization of workloads running on Oracle Cloud Infrastructure. The project is in its early stages; the current repository layout and documentation scaffolding are intended to guide future development.
+OCI CPU Shaper is an emerging toolkit for shaping CPU utilization of workloads running on Oracle Cloud Infrastructure. The project is in its early stages; the current repository layout and documentation scaffolding are intended to guide future development. New operators should begin with the [Quick Start](docs/10-quick-start.md) to complete the mandatory console setup before exploring the reference material.
 
 ## Repository Structure
 
