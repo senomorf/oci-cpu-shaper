@@ -72,6 +72,48 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify Always Free guardrail alarm
+        env:
+          INSTANCE_OCID: ${{ steps.imds.outputs.instance-ocid }}
+          COMPARTMENT_OCID: ${{ steps.imds.outputs.compartment-ocid }}
+          OCI_REGION: ${{ steps.imds.outputs.region }}
+          METRIC_COMPARTMENT_OCID: ${{ vars.SELF_HOSTED_METRIC_COMPARTMENT_OCID || '' }}
+          SKIP_GUARD: ${{ vars.SELF_HOSTED_SKIP_ALARM_GUARD || 'false' }}
+          REQUIRE_DESTINATIONS: ${{ vars.SELF_HOSTED_REQUIRE_ALARM_DESTINATIONS || 'true' }}
+          EXPECTED_PENDING: ${{ vars.SELF_HOSTED_EXPECTED_PENDING_DURATION || 'PT1H' }}
+          EXPECTED_RESOLUTION: ${{ vars.SELF_HOSTED_EXPECTED_RESOLUTION || '1m' }}
+        run: |
+          set -euo pipefail
+
+          if [ "${SKIP_GUARD,,}" = "true" ]; then
+            echo "Skipping Always Free guardrail verification"
+            exit 0
+          fi
+
+          if [ -z "$INSTANCE_OCID" ] || [ -z "$COMPARTMENT_OCID" ]; then
+            echo "::error::Missing instance or compartment identifiers for guardrail validation"
+            exit 1
+          fi
+
+          args=(
+            -instance "$INSTANCE_OCID"
+            -compartment "$COMPARTMENT_OCID"
+            -region "$OCI_REGION"
+            -timeout 60s
+            -expected-pending "$EXPECTED_PENDING"
+            -expected-resolution "$EXPECTED_RESOLUTION"
+          )
+
+          if [ -n "$METRIC_COMPARTMENT_OCID" ]; then
+            args+=( -metric-compartment "$METRIC_COMPARTMENT_OCID" )
+          fi
+
+          if [ "${REQUIRE_DESTINATIONS,,}" != "true" ]; then
+            args+=( -require-destinations=false )
+          fi
+
+          go run ./hack/tools/alarmguard "${args[@]}"
+
       - name: Query Monitoring for P95 CPU
         env:
           INSTANCE_OCID: ${{ steps.imds.outputs.instance-ocid }}
