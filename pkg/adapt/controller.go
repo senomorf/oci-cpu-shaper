@@ -44,6 +44,8 @@ type Controller interface {
 	Run(ctx context.Context) error
 	Mode() string
 	State() State
+	LastError() error
+	LastEstimatorError() error
 }
 
 // DutyCycler is implemented by the shape worker pool.
@@ -249,6 +251,14 @@ func (c *AdaptiveController) Target() float64 {
 	defer c.mu.Unlock()
 
 	return c.target
+}
+
+// LastError returns the most recent OCI metrics error encountered by the controller.
+func (c *AdaptiveController) LastError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.lastErr
 }
 
 // LastP95 returns the last successful OCI P95 value.
@@ -477,6 +487,12 @@ func (n *NoopController) Mode() string { return n.mode }
 
 // State implements the Controller interface.
 func (n *NoopController) State() State { return StateNormal }
+
+// LastError implements the Controller interface.
+func (n *NoopController) LastError() error { return nil }
+
+// LastEstimatorError implements the Controller interface.
+func (n *NoopController) LastEstimatorError() error { return nil }
 
 func normalizeConfig(cfg Config) (Config, string, error) {
 	normalized, mode := coerceConfig(cfg)

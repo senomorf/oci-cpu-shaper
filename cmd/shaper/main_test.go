@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -609,6 +610,26 @@ func TestRunExposesMetricsOffline(t *testing.T) {
 		},
 	)
 
+	snapshot := fetchHealthSnapshot(ctx, t, server.Client(), server.URL)
+
+	if snapshot.State != adapt.StateNormal.String() {
+		t.Fatalf("expected health state %q, got %q", adapt.StateNormal.String(), snapshot.State)
+	}
+
+	expectedOCI := errStubHealthOCI.Error()
+	if snapshot.LastOCIError != expectedOCI {
+		t.Fatalf("expected health OCI error %q, got %q", expectedOCI, snapshot.LastOCIError)
+	}
+
+	expectedEstimator := errStubHealthEstimator.Error()
+	if snapshot.EstimatorError != expectedEstimator {
+		t.Fatalf(
+			"expected health estimator error %q, got %q",
+			expectedEstimator,
+			snapshot.EstimatorError,
+		)
+	}
+
 	cancel()
 
 	exitCode := <-exitCh
@@ -616,6 +637,11 @@ func TestRunExposesMetricsOffline(t *testing.T) {
 		t.Fatalf("expected zero exit code, got %d", exitCode)
 	}
 }
+
+var (
+	errStubHealthOCI       = errors.New("oci metrics unavailable")
+	errStubHealthEstimator = errors.New("estimator stalled")
+)
 
 //nolint:funlen // helper configures run dependencies and keeps test setup readable.
 func newOfflineRunDeps(t *testing.T, serverCh chan<- *httptest.Server) runDeps {
@@ -672,8 +698,10 @@ func newOfflineRunDeps(t *testing.T, serverCh chan<- *httptest.Server) runDeps {
 		pool.quantum = cfg.Pool.Quantum
 
 		controller := &blockingController{
-			mode:  mode,
-			state: adapt.StateNormal,
+			mode:    mode,
+			state:   adapt.StateNormal,
+			lastErr: errStubHealthOCI,
+			estErr:  errStubHealthEstimator,
 		}
 
 		return controller, pool, nil
@@ -690,6 +718,53 @@ func expectMetricsSnippets(t *testing.T, output string, snippets []string) {
 			t.Fatalf("expected metrics output to contain %q, got:\n%s", snippet, output)
 		}
 	}
+}
+
+type healthSnapshot struct {
+	State          string `json:"state"`
+	LastOCIError   string `json:"ociError"`
+	EstimatorError string `json:"estimatorError"`
+}
+
+func fetchHealthSnapshot(
+	ctx context.Context,
+	t *testing.T,
+	client *http.Client,
+	baseURL string,
+) healthSnapshot {
+	t.Helper()
+
+	request, buildErr := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/healthz", nil)
+	if buildErr != nil {
+		t.Fatalf("build health request: %v", buildErr)
+	}
+
+	response, doErr := client.Do(request)
+	if doErr != nil {
+		t.Fatalf("GET /healthz failed: %v", doErr)
+	}
+
+	defer func() {
+		closeErr := response.Body.Close()
+		if closeErr != nil {
+			t.Fatalf("close health response body: %v", closeErr)
+		}
+	}()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /healthz, got %d", response.StatusCode)
+	}
+
+	decoder := json.NewDecoder(response.Body)
+
+	var snapshot healthSnapshot
+
+	decodeErr := decoder.Decode(&snapshot)
+	if decodeErr != nil {
+		t.Fatalf("decode health response: %v", decodeErr)
+	}
+
+	return snapshot
 }
 
 func TestDefaultControllerFactoryReturnsNoopForMode(t *testing.T) {
@@ -1158,6 +1233,8 @@ func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
 		deadline:    time.Time{},
 		deadlineSet: false,
 		state:       adapt.StateNormal,
+		lastErr:     nil,
+		estErr:      nil,
 	}
 
 	logIMDSMetadata(
@@ -1480,6 +1557,8 @@ type stubController struct {
 	deadline    time.Time
 	deadlineSet bool
 	state       adapt.State
+	lastErr     error
+	estErr      error
 }
 
 func (c *stubController) Run(ctx context.Context) error {
@@ -1508,9 +1587,19 @@ func (c *stubController) State() adapt.State {
 	return c.state
 }
 
+func (c *stubController) LastError() error {
+	return c.lastErr
+}
+
+func (c *stubController) LastEstimatorError() error {
+	return c.estErr
+}
+
 type blockingController struct {
-	mode  string
-	state adapt.State
+	mode    string
+	state   adapt.State
+	lastErr error
+	estErr  error
 }
 
 func (c *blockingController) Run(ctx context.Context) error {
@@ -1527,6 +1616,10 @@ func (c *blockingController) Run(ctx context.Context) error {
 func (c *blockingController) Mode() string { return c.mode }
 
 func (c *blockingController) State() adapt.State { return c.state }
+
+func (c *blockingController) LastError() error { return c.lastErr }
+
+func (c *blockingController) LastEstimatorError() error { return c.estErr }
 
 func fieldString(fields []zap.Field, key string) string {
 	for _, field := range fields {
