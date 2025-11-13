@@ -19,6 +19,7 @@ import (
 	"oci-cpu-shaper/pkg/adapt"
 	"oci-cpu-shaper/pkg/est"
 	metricshttp "oci-cpu-shaper/pkg/http/metrics"
+	statushttp "oci-cpu-shaper/pkg/http/status"
 	"oci-cpu-shaper/pkg/imds"
 	"oci-cpu-shaper/pkg/oci"
 	"oci-cpu-shaper/pkg/shape"
@@ -136,6 +137,7 @@ func configureMetrics(
 	cfg runtimeConfig,
 	exporter *metricshttp.Exporter,
 	pool poolStarter,
+	controller adapt.Controller,
 ) error {
 	if exporter == nil {
 		return nil
@@ -152,6 +154,10 @@ func configureMetrics(
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", exporter)
+
+	if controller != nil {
+		mux.Handle("/healthz", statushttp.NewHandler(controller))
+	}
 
 	return deps.startMetricsServer(ctx, logger, cfg.HTTP.Bind, mux)
 }
@@ -231,7 +237,7 @@ func run(
 		return code
 	}
 
-	err = configureMetrics(ctx, deps, logger, cfg, metricsExporter, pool)
+	err = configureMetrics(ctx, deps, logger, cfg, metricsExporter, pool, controller)
 	if err != nil {
 		logger.Error("failed to start metrics server", zap.Error(err))
 

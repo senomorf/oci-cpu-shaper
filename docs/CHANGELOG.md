@@ -3,7 +3,11 @@
 ## Unreleased
 
 ### Added
-_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+- `/healthz` status handler on the metrics listener that surfaces controller
+  state plus the last OCI Monitoring and estimator errors as JSON; unit tests
+  cover `pkg/http/status` and the offline CLI E2E now exercises the endpoint to
+  keep the ≥85% statement coverage floor intact (§§5, 9, 11).
 - `shaper --version`/`shaper version` commands that print the embedded build
   metadata without initialising configuration or logging, plus unit coverage to
   ensure the fast-exit path leaves existing logger wiring untouched (§§5, 9).

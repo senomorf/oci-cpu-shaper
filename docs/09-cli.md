@@ -183,3 +183,28 @@ host_cpu_percent 6.25
 ```
 
 Offline mode continues to populate each series so smoke tests and container health checks can rely on the exporter without live tenancy credentials; only `oci_last_success_epoch` remains `0` until Monitoring calls succeed. Unit and CLI tests exercise the handler through `httptest.Server`, preserving the ≥85% coverage floor mandated in §11.
+
+## 9.6 Health Checks
+
+`cmd/shaper` now serves a lightweight JSON status document at `/healthz` on the
+same listener as `/metrics`. The handler reports the controller state machine
+(`"normal"`, `"fallback"`, or `"suppressed"`) alongside the last OCI metrics error
+and most recent estimator error snapshot. Container orchestrators can poll the
+endpoint to surface degraded Monitoring connectivity or estimator stalls while
+the process continues to run.
+
+The response mirrors this structure:
+
+```json
+{
+  "state": "normal",
+  "ociError": "",
+  "estimatorError": ""
+}
+```
+
+When errors are present the strings are populated with the underlying error
+messages; otherwise they remain empty. Unit coverage in `pkg/http/status`
+verifies the handler’s JSON output while the existing offline end-to-end run
+now asserts that `/healthz` reflects the injected Monitoring and estimator
+errors, keeping the ≥85% coverage target documented in §11 intact.
