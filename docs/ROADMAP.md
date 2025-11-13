@@ -21,8 +21,9 @@
 
 ## 12.1 Documentation coverage
 - Completed: Authored [`01-oci-policy.md`](01-oci-policy.md), [`03-free-tier-reclaim.md`](03-free-tier-reclaim.md), [`04-cgroups-v2.md`](04-cgroups-v2.md), and [`07-alarms.md`](07-alarms.md) to match the implementation plan (§12).
-- Pending: Add CLI deep dives and deployment walkthroughs for `cmd/shaper` once the adaptive controller stabilises (§§5, 6, 9).
-- Pending: Expand contributor onboarding material with QA workflows that emphasise the ≥85% coverage floor (§11).
+- Completed: Published the CLI deep dive in [`09-cli.md`](09-cli.md) and deployment walkthroughs in [`06-komodo-compose.md`](06-komodo-compose.md), covering configuration layering, Compose/Quadlet manifests, and smoke-test workflows now that the adaptive controller is wired end to end (§§5, 6, 9).
+- Completed: Expanded contributor onboarding guidance in [`08-development.md`](08-development.md) with end-to-end QA workflows, coverage guardrails, and integration harness expectations so the ≥85% statement floor stays enforceable (§§8, 11).
+- Pending: Track future updates to the adaptive controller and release automation, adding follow-up documentation as new telemetry or operator workflows emerge (§§5, 9, 14).
 
 ## 14.1 CI automation
 - Run `golangci-lint` with the repository defaults on every pull request to catch regressions early (§14).
