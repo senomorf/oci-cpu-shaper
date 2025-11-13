@@ -75,7 +75,7 @@ test:
 	@if [ -z "$(strip $(PKGS))" ]; then \
 		echo "No Go packages found; skipping tests."; \
 	else \
-	mkdir -p "$(GOCACHE_DIR)"; \
+		mkdir -p "$(GOCACHE_DIR)"; \
 		GOCACHE="$(GOCACHE_DIR)" $(GO) test -race $(PKGS); \
 	fi
 
@@ -106,7 +106,9 @@ coverage:
 		fi; \
 	fi
 agents:
-	$(GO) run ./cmd/agentscheck
+	@set -euo pipefail; \
+	mkdir -p "$(GOCACHE_DIR)"; \
+	GOCACHE="$(GOCACHE_DIR)" $(GO) run ./cmd/agentscheck
 
 govulncheck:
 	@set -euo pipefail; \
@@ -137,10 +139,11 @@ integration:
 	echo "Docker cgroup version: $$cgroup_version"; \
 	artifacts_dir="$(ROOT_DIR)/artifacts"; \
 	log_file="$$artifacts_dir/integration.log"; \
-	mkdir -p "$$artifacts_dir"; \
+	mkdir -p "$$artifacts_dir" "$(GOCACHE_DIR)"; \
+	keep_logs="$${INTEGRATION_KEEP_LOGS:-0}"; \
 	cleanup() { \
 		status="$$?"; \
-		if [ "$$status" -eq 0 ]; then \
+		if [ "$$status" -eq 0 ] && [ "$$keep_logs" != "1" ]; then \
 			rm -f "$$log_file"; \
 			rmdir "$$artifacts_dir" 2>/dev/null || true; \
 		else \
@@ -150,7 +153,7 @@ integration:
 	}; \
 	trap 'cleanup' EXIT; \
 	touch "$$log_file"; \
-	$(GO) test -tags=integration -v ./tests/integration/... | tee "$$log_file"
+	GOCACHE="$(GOCACHE_DIR)" $(GO) test -tags=integration -v ./tests/integration/... | tee "$$log_file"
 e2e:
 	@set -euo pipefail; \
 	if [ ! -d "$(ROOT_DIR)/tests/e2e" ]; then \
