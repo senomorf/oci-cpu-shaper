@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥85% statement coverage budget (§11)._ 
+_Note coverage-impacting additions: mention new test suites or tooling that shift the CI ≥95% statement coverage budget (§11)._
 - Grafana dashboard export (`deploy/grafana/oci-cpu-shaper-dashboard.json`) covering OCI
   P95, controller target/state, and host CPU overlays, plus §5.4 import instructions so
   operators can wire the Prometheus feed into Grafana without rebuilding the charts (§§3,
@@ -11,7 +11,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - `/healthz` status handler on the metrics listener that surfaces controller
   state plus the last OCI Monitoring and estimator errors as JSON; unit tests
   cover `pkg/http/status` and the offline CLI E2E now exercises the endpoint to
-  keep the ≥85% statement coverage floor intact (§§5, 9, 11).
+  keep the ≥95% statement coverage floor intact (§§5, 9, 11).
 - `shaper --version`/`shaper version` commands that print the embedded build
   metadata without initialising configuration or logging, plus unit coverage to
   ensure the fast-exit path leaves existing logger wiring untouched (§§5, 9).
@@ -26,7 +26,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
   missing `CAP_SYS_NICE`/`SYS_NICE`). Dependency-injected unit tests stub
   `unix.SchedSetScheduler` to cover success and EPERM denial paths, preserving
   the §11.1 coverage contract while documenting the new behaviour in §§6 and 9.
-- Regression suite `TestControllerCpuUtilisationAcrossOCPUs` covering 1–4 OCPU CpuUtilization streams and the relaxed-interval clamp so the adaptive controller keeps the Always Free reclaim guardrails documented in §§3.1 and 5.2. Tests maintain the ≥85% statement floor by exercising the prolonged high-utilisation path in `pkg/adapt/controller.go` (§11).
+- Regression suite `TestControllerCpuUtilisationAcrossOCPUs` covering 1–4 OCPU CpuUtilization streams and the relaxed-interval clamp so the adaptive controller keeps the Always Free reclaim guardrails documented in §§3.1 and 5.2. Tests maintain the ≥95% statement floor by exercising the prolonged high-utilisation path in `pkg/adapt/controller.go` (§11).
 - Deterministic 24-hour-equivalent worker-pool load harness (`go test -tags=load ./pkg/shape -run TestPoolLoad24hEquivalent`) that logs CPU/RSS telemetry to `artifacts/load/pool-24h.log` and enforces the §10 budgets alongside nightly/manual CI coverage via `.github/workflows/load.yml` (§§10, 11.4).
 - Always Free Terraform stack under `deploy/terraform/self-hosted-runner/` that provisions a hardened GitHub Actions runner with instance-principal access scoped to test compartments, including cloud-init hardening and IAM automation (§§5, 8, 15).
 - Terraform alarm module under `deploy/terraform/alarms/` that creates the seven-day P95 Always Free reclaim guardrail with parameterised OCIDs, opinionated tagging, and Notification wiring, plus documentation of the exact `.window(7d).percentile(0.95)` MQL expression in §7 (§§3, 5, 7).
@@ -35,9 +35,9 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - Runner maintenance and secrets rotation guidance in §15 of `docs/08-development.md`, covering patch cadence, token refresh, and repository variables linked to the new workflow (§§8, 12, 15).
 - Dependabot automation covering Go modules, GitHub Actions, and container Dockerfiles with weekly/monthly cadences to keep CI and release dependencies current (§§11, 14).
 - Documented the §8.7 issue triage workflow so contributors can acknowledge, classify, and reproduce reports consistently across tooling and coverage expectations (§§8, 11, 12, 15).
-- Adaptive controller wiring from `cmd/shaper` to the OCI Monitoring client, estimator sampler, and worker pool, plus layered YAML + environment configuration for controller targets, cadences, worker counts, and HTTP binding (§§3.1, 5.2). Tests cover configuration decoding, environment overrides, and controller factory success/error paths to preserve the ≥85% coverage floor (§11).
+- Adaptive controller wiring from `cmd/shaper` to the OCI Monitoring client, estimator sampler, and worker pool, plus layered YAML + environment configuration for controller targets, cadences, worker counts, and HTTP binding (§§3.1, 5.2). Tests cover configuration decoding, environment overrides, and controller factory success/error paths to preserve the ≥95% coverage floor (§11).
 - Fast-loop suppression mode that adds a `suppressed` controller state, host-load hysteresis, and configuration knobs (`controller.suppressThreshold`/`controller.suppressResume`, `SHAPER_SUPPRESS_THRESHOLD`/`SHAPER_SUPPRESS_RESUME`) so the estimator can drop the worker pool to zero until the host cools (§§3.1, 5.2). Unit tests now cover suppression entry/exit and estimator error recording while docs in §§4 and 9 describe the new telemetry and structured `controllerState` logging.
-- Instance-principal Monitoring client (`pkg/oci`) exposing `QueryP95CPU` with pagination, missing-data fallbacks, and HTTP-backed mocks that keep coverage above the ≥85% floor. Documented in §5 alongside troubleshooting guidance for tenancy policy and metric gaps.
+- Instance-principal Monitoring client (`pkg/oci`) exposing `QueryP95CPU` with pagination, missing-data fallbacks, and HTTP-backed mocks that keep coverage above the ≥95% floor. Documented in §5 alongside troubleshooting guidance for tenancy policy and metric gaps.
 - HTTP-backed IMDSv2 client with retried metadata lookups, shape-config decoding, and an overridable endpoint (`OCI_CPU_SHAPER_IMDS_ENDPOINT`), documented in §2 and backed by `httptest` unit coverage (§§2, 5, 11).
 - Repository-wide AGENTS policy check with `make agents` and CI coverage to enforce scoped instructions (§8.4).
 - Token-optimised AGENTS templates and directory-change checklist to keep scoped guidance current (§8.6).
@@ -48,7 +48,7 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - GitHub Actions workflows covering `golangci-lint` and race-enabled `go test` runs on pull requests (§14).
 - Automated release pipeline publishing multi-architecture images with Syft-generated SPDX SBOM artifacts (§14).
 - Unit coverage for IMDS dummy metadata, controller mode wiring, and CLI bootstrap flows via dependency-injected smoke tests (§§5, 9, 11).
-- Race-enabled `make coverage` target and CI enforcement requiring at least 85% statement coverage before merging (§14).
+- Race-enabled `make coverage` target and CI enforcement requiring at least 95% statement coverage before merging (§14).
 - Go vulnerability scanning via `make govulncheck` and a dedicated CI job that restores module/build caches, failing pull requests when published advisories affect the dependency graph (§14).
 - CPU weight responsiveness integration suite with CI coverage on `ubuntu-latest` (cgroup v2) that exercises the container build alongside a competing workload and publishes verbose logs (§§6, 11).
 - Local `make integration` helper replicating the CI cgroup v2 guard, Docker availability checks, and log capture so contributors can rerun the CPU weight suite with artifact parity (§§6, 11).
@@ -57,18 +57,18 @@ _Note coverage-impacting additions: mention new test suites or tooling that shif
 - `/metrics` exporter and Prometheus integration surfaced through the CLI, including emitted series, sample scrape output, and Compose/HTTP_ADDR wiring documented across §§4–9.
 
 ### Changed
-_Record coverage reductions or mitigations so reviewers can audit the CI ≥85% threshold impact (§11)._ 
+_Record coverage reductions or mitigations so reviewers can audit the CI ≥95% threshold impact (§11)._
 - Rootless Mode A manifests, runtime script, and docs now restore the `SHAPER_CPU_SHARES` default to `128`, reflecting that rootless
   Docker honours delegated cgroup v2 CPU weight overrides (§6).
 - Refreshed `docs/00-overview.md` to document the current CLI flag surface, configuration layout, and navigation map, including forthcoming quick-start and CLI references (§§0, 5, 9).
 - Clarified the documentation roadmap to mark the published CLI/deployment guides and onboarding workflows as complete while calibrating remaining milestones for future adaptive-controller and release updates (§12).
 - CLI now starts the metrics HTTP server using `http.bind`/`HTTP_ADDR`, shuts it down with the run context, and ships container/Compose updates (`EXPOSE 9108`, `${SHAPER_METRICS_BIND}`) so `/metrics` is reachable when enabled; docs describe the exporter and monitoring workflow alignment (§§6, 9, 11).
-- CLI metadata resolution now populates `oci.compartmentId`/`OCI_COMPARTMENT_ID` alongside the new `oci.region`/`OCI_REGION` overrides using IMDS when online, threads the resolved region into the Monitoring client, and logs both identifiers for observability. Fresh unit coverage in §11 exercises the success, fallback, and error paths so the ≥85% statement floor holds.
+- CLI metadata resolution now populates `oci.compartmentId`/`OCI_COMPARTMENT_ID` alongside the new `oci.region`/`OCI_REGION` overrides using IMDS when online, threads the resolved region into the Monitoring client, and logs both identifiers for observability. Fresh unit coverage in §11 exercises the success, fallback, and error paths so the ≥95% statement floor holds.
 - IMDS client now injects the required IMDSv2 authorisation header and exposes canonical-region plus compartment OCID lookups, with unit tests and docs refreshed to keep §2 aligned with the metadata surface.
 - CLI `--mode` handling now starts the adaptive controller in `dry-run`/`enforce`, keeps `noop` as a diagnostics bypass, and logs configuration failures surfaced by the new YAML/environment loader. Updated docs in §§5 and 9 describe the operating modes and tunable configuration.
-- Raised the CI statement coverage floor to 85% and filtered `make coverage` to exclude developer tooling packages (for example, `cmd/agentscheck`), bringing the latest production-only run to 86.6% while keeping the threshold focused on shipped code paths (§11).
+- Raised the CI statement coverage floor to 95% and filtered `make coverage` to exclude developer tooling packages (for example, `cmd/agentscheck`), bringing the latest production-only run to 95.1% while keeping the threshold focused on shipped code paths (§11).
 - CLI argument parsing now validates supported controller modes and normalises flag input before wiring placeholder subsystems.
-- §11 development workflow now mandates shipping changes only after `go test ./... -race` and `golangci-lint run` succeed, reinforcing the all-tests-pass requirement alongside the existing ≥85% coverage guardrail.
+- §11 development workflow now mandates shipping changes only after `go test ./... -race` and `golangci-lint run` succeed, reinforcing the all-tests-pass requirement alongside the existing ≥95% coverage guardrail.
 - CLI runtime configuration accepts an `oci.instanceId`/`OCI_INSTANCE_ID` override so dry-run and enforce modes can bootstrap when IMDS access is unavailable (e.g., CI smoke tests), with docs refreshed in §§2 and 9.
 - CLI runtime configuration now recognises `oci.offline`/`OCI_OFFLINE`, substituting a static metrics client and fallback instance ID so dry-run and enforce bootstrap without IMDS or Monitoring access. Container docs in §§8 and 9 cover the new smoke-test defaults.
 - Logger construction returns actionable errors for invalid levels while keeping structured output defaults consistent.

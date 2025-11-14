@@ -127,7 +127,7 @@ Invalid flag values are rejected during argument parsing: unknown controller mod
 
 Configuration validation shares this behaviour: when thresholds conflict with the suppression bounds the CLI prints the descriptive failure and exits with code `2`, preventing partially initialised controllers (§§3.1, 5.2).
 
-Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios. Offline mode keeps this wiring intact by substituting the static metrics client so container smoke tests can run without live tenancy credentials, and new unit coverage exercises the IMDS-backed region/compartment resolver plus its failure modes to keep the ≥85% statement coverage guarantee intact.
+Smoke tests introduced in §11 now cover the dependency-injected entrypoint as well as adaptive-controller wiring, ensuring that enforce/dry-run builds start the OCI client, estimator sampler, and worker pool while `noop` preserves the bypass path for validation scenarios. Offline mode keeps this wiring intact by substituting the static metrics client so container smoke tests can run without live tenancy credentials, and new unit coverage exercises the IMDS-backed region/compartment resolver plus its failure modes to keep the ≥95% statement coverage guarantee intact.
 
 Rootful binaries built with `-tags rootful` log a warning if the kernel rejects the
 `SCHED_IDLE` request emitted when the worker pool starts (§§6, 9). Hosts running
@@ -182,7 +182,7 @@ host_cpu_percent 6.25
 # EOF
 ```
 
-Offline mode continues to populate each series so smoke tests and container health checks can rely on the exporter without live tenancy credentials; only `oci_last_success_epoch` remains `0` until Monitoring calls succeed. Unit and CLI tests exercise the handler through `httptest.Server`, preserving the ≥85% coverage floor mandated in §11.
+Offline mode continues to populate each series so smoke tests and container health checks can rely on the exporter without live tenancy credentials; only `oci_last_success_epoch` remains `0` until Monitoring calls succeed. Unit and CLI tests exercise the handler through `httptest.Server`, preserving the ≥95% coverage floor mandated in §11.
 
 ## 9.6 Health Checks
 
@@ -207,4 +207,4 @@ When errors are present the strings are populated with the underlying error
 messages; otherwise they remain empty. Unit coverage in `pkg/http/status`
 verifies the handler’s JSON output while the existing offline end-to-end run
 now asserts that `/healthz` reflects the injected Monitoring and estimator
-errors, keeping the ≥85% coverage target documented in §11 intact.
+errors, keeping the ≥95% coverage target documented in §11 intact.

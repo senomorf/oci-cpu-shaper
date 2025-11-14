@@ -18,6 +18,10 @@ type MonitoringResponse struct {
 	Body   string
 }
 
+type monitoringPayload struct {
+	Value float64 `json:"value"`
+}
+
 // MonitoringRequest captures a single request observed by the fake Monitoring service.
 type MonitoringRequest struct {
 	ResourceID string

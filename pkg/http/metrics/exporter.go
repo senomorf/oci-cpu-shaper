@@ -18,7 +18,15 @@ const (
 	hundredPercent        = 100.0
 )
 
-var errNilWriter = errors.New("metrics: writer is nil")
+var (
+	errNilWriter = errors.New("metrics: writer is nil")
+	errNilBuffer = errors.New("metrics: buffer factory returned nil")
+)
+
+type byteBuffer interface {
+	io.Writer
+	Bytes() []byte
+}
 
 // Exporter tracks controller and estimator metrics and exposes them via HTTP.
 type Exporter struct {
@@ -32,11 +40,18 @@ type Exporter struct {
 	dutyCycleMillis float64
 	workerCount     float64
 	hostCPUPercent  float64
+
+	bufferFactory func() byteBuffer
 }
 
 // NewExporter constructs an Exporter with zeroed metrics.
 func NewExporter() *Exporter {
-	return new(Exporter)
+	exporter := new(Exporter)
+	exporter.bufferFactory = func() byteBuffer {
+		return new(bytes.Buffer)
+	}
+
+	return exporter
 }
 
 // SetMode records the controller mode label.
@@ -155,14 +170,26 @@ func (e *Exporter) ServeHTTP(writer http.ResponseWriter, _ *http.Request) {
 
 // Render returns the current metrics snapshot encoded as OpenMetrics text.
 func (e *Exporter) Render() ([]byte, error) {
-	var buffer bytes.Buffer
+	factory := e.bufferFactory
+	if factory == nil {
+		factory = func() byteBuffer { return new(bytes.Buffer) }
+	}
 
-	_, err := e.WriteTo(&buffer)
+	buffer := factory()
+	if buffer == nil {
+		return nil, errNilBuffer
+	}
+
+	_, err := e.WriteTo(buffer)
 	if err != nil {
 		return nil, err
 	}
 
-	return buffer.Bytes(), nil
+	data := buffer.Bytes()
+	cloned := make([]byte, len(data))
+	copy(cloned, data)
+
+	return cloned, nil
 }
 
 // WriteTo writes the current metrics snapshot to the provided writer.

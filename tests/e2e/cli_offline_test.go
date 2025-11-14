@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"oci-cpu-shaper/internal/e2eclient"
 	"oci-cpu-shaper/pkg/imds"
 	interne2e "oci-cpu-shaper/tests/internal/e2e"
 )
@@ -54,7 +55,7 @@ oci:
 
 	offlineLogs, offlineMetrics := runShaper(ctx, t, binary, offlineConfig, offlineMetricsPort, map[string]string{
 		"OCI_CPU_SHAPER_IMDS_ENDPOINT":  offlineIMDS.Endpoint(),
-		interne2e.MonitoringEndpointEnv: offlineMonitoring.URL(),
+		e2eclient.MonitoringEndpointEnv: offlineMonitoring.URL(),
 	})
 
 	if requests := offlineIMDS.Requests(); len(requests) != 0 {
@@ -100,7 +101,7 @@ oci:
 
 	onlineLogs, onlineMetrics := runShaper(ctx, t, binary, onlineConfig, onlineMetricsPort, map[string]string{
 		"OCI_CPU_SHAPER_IMDS_ENDPOINT":  onlineIMDS.Endpoint(),
-		interne2e.MonitoringEndpointEnv: onlineMonitoring.URL(),
+		e2eclient.MonitoringEndpointEnv: onlineMonitoring.URL(),
 	})
 
 	imdsRequests := onlineIMDS.Requests()

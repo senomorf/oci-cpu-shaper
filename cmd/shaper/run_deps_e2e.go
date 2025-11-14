@@ -9,10 +9,10 @@ import (
 
 	"go.uber.org/zap"
 	"oci-cpu-shaper/internal/buildinfo"
+	"oci-cpu-shaper/internal/e2eclient"
 	"oci-cpu-shaper/pkg/adapt"
 	metricshttp "oci-cpu-shaper/pkg/http/metrics"
 	"oci-cpu-shaper/pkg/imds"
-	interne2e "oci-cpu-shaper/tests/internal/e2e"
 )
 
 var e2eLogger atomic.Pointer[zap.Logger]
@@ -30,7 +30,7 @@ func defaultRunDeps() runDeps {
 		) (adapt.Controller, poolStarter, error) {
 			logger := e2eLogger.Load()
 			if logger != nil && recorder != nil {
-				recorder = interne2e.NewLoggingRecorder(logger, recorder)
+				recorder = e2eclient.NewLoggingRecorder(logger, recorder)
 			}
 
 			return defaultControllerFactory(ctx, mode, cfg, imdsClient, recorder)

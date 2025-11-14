@@ -25,13 +25,13 @@
 ## 12.1 Documentation coverage
 - Completed: Authored [`01-oci-policy.md`](01-oci-policy.md), [`03-free-tier-reclaim.md`](03-free-tier-reclaim.md), [`04-cgroups-v2.md`](04-cgroups-v2.md), and [`07-alarms.md`](07-alarms.md) to match the implementation plan (§12).
 - Completed: Published the CLI deep dive in [`09-cli.md`](09-cli.md) and deployment walkthroughs in [`06-komodo-compose.md`](06-komodo-compose.md), covering configuration layering, Compose/Quadlet manifests, and smoke-test workflows now that the adaptive controller is wired end to end (§§5, 6, 9).
-- Completed: Expanded contributor onboarding guidance in [`08-development.md`](08-development.md) with end-to-end QA workflows, coverage guardrails, and integration harness expectations so the ≥85% statement floor stays enforceable (§§8, 11).
+- Completed: Expanded contributor onboarding guidance in [`08-development.md`](08-development.md) with end-to-end QA workflows, coverage guardrails, and integration harness expectations so the ≥95% statement floor stays enforceable (§§8, 11).
 - Pending: Track future updates to the adaptive controller and release automation, adding follow-up documentation as new telemetry or operator workflows emerge (§§5, 9, 14).
 
 ## 14.1 CI automation
 - Run `golangci-lint` with the repository defaults on every pull request to catch regressions early (§14).
 - Execute `go test ./... -race` for all targets so concurrency issues surface during review (§14).
-- Follow the [§11 Coverage Workflow](08-development.md#11-coverage-workflow) to keep statement coverage at or above the CI ≥85% floor during feature work (§14).
+- Follow the [§11 Coverage Workflow](08-development.md#11-coverage-workflow) to keep statement coverage at or above the CI ≥95% floor during feature work (§14).
 - Block merges on CI completion to keep `main` green.
 - Cache Go modules across CI jobs so linting and testing complete quickly while using the latest Go toolchain (§14).
 - Build the container image with Docker Buildx on every pull request, reusing cached layers,

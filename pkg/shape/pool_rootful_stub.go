@@ -2,4 +2,8 @@
 
 package shape
 
-func configureRootfulHooks(*Pool) {}
+func configureRootfulHooks(pool *Pool) {
+	if pool == nil {
+		return
+	}
+}

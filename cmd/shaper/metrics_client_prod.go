@@ -10,7 +10,7 @@ import (
 
 //nolint:ireturn // helper returns MetricsClient interface for controller wiring.
 func buildInstancePrincipalMetricsClient(compartmentID, region string) (oci.MetricsClient, error) {
-	client, err := oci.NewInstancePrincipalClient(compartmentID, region)
+	client, err := newInstancePrincipalClient(compartmentID, region)
 	if err != nil {
 		return nil, fmt.Errorf("new instance principal client: %w", err)
 	}

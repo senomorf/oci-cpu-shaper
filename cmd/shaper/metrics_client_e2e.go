@@ -7,15 +7,15 @@ import (
 	"os"
 	"strings"
 
+	"oci-cpu-shaper/internal/e2eclient"
 	"oci-cpu-shaper/pkg/oci"
-	interne2e "oci-cpu-shaper/tests/internal/e2e"
 )
 
 //nolint:ireturn // tests rely on MetricsClient interface substitution.
 func buildInstancePrincipalMetricsClient(compartmentID, region string) (oci.MetricsClient, error) {
-	endpoint := strings.TrimSpace(os.Getenv(interne2e.MonitoringEndpointEnv))
+	endpoint := strings.TrimSpace(os.Getenv(e2eclient.MonitoringEndpointEnv))
 	if endpoint != "" {
-		client, err := interne2e.NewMonitoringClient(endpoint)
+		client, err := e2eclient.NewMonitoringClient(endpoint)
 		if err != nil {
 			return nil, fmt.Errorf("build e2e monitoring client: %w", err)
 		}
@@ -23,7 +23,7 @@ func buildInstancePrincipalMetricsClient(compartmentID, region string) (oci.Metr
 		return client, nil
 	}
 
-	client, err := oci.NewInstancePrincipalClient(compartmentID, region)
+	client, err := newInstancePrincipalClient(compartmentID, region)
 	if err != nil {
 		return nil, fmt.Errorf("new instance principal client: %w", err)
 	}

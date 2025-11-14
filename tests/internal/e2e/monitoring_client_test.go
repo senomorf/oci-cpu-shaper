@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"oci-cpu-shaper/internal/e2eclient"
 	"oci-cpu-shaper/pkg/oci"
-	interne2e "oci-cpu-shaper/tests/internal/e2e"
 )
 
 func TestMonitoringClientNoContentReturnsErrNoMetricsData(t *testing.T) {
@@ -19,7 +19,7 @@ func TestMonitoringClientNoContentReturnsErrNoMetricsData(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client, err := interne2e.NewMonitoringClient(server.URL)
+	client, err := e2eclient.NewMonitoringClient(server.URL)
 	if err != nil {
 		t.Fatalf("NewMonitoringClient returned error: %v", err)
 	}

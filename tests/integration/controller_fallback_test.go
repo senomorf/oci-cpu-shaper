@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
+	"oci-cpu-shaper/internal/e2eclient"
 	"oci-cpu-shaper/pkg/adapt"
 	metricshttp "oci-cpu-shaper/pkg/http/metrics"
 	interne2e "oci-cpu-shaper/tests/internal/e2e"
@@ -26,14 +27,14 @@ func TestControllerFallbackRecoversAfterMonitoringGap(t *testing.T) {
 	logger := zap.New(observerCore)
 
 	exporter := metricshttp.NewExporter()
-	recorder := interne2e.NewLoggingRecorder(logger, exporter)
+	recorder := e2eclient.NewLoggingRecorder(logger, exporter)
 
 	monitoring := interne2e.StartMonitoringServer(t, []interne2e.MonitoringResponse{
 		{Status: http.StatusNoContent},
 		{Value: 0.28},
 	})
 
-	metricsClient, err := interne2e.NewMonitoringClient(monitoring.URL())
+	metricsClient, err := e2eclient.NewMonitoringClient(monitoring.URL())
 	if err != nil {
 		t.Fatalf("create monitoring client: %v", err)
 	}

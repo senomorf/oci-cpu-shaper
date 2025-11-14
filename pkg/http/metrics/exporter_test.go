@@ -103,6 +103,21 @@ func TestExporterWriteToPropagatesWriterErrors(t *testing.T) {
 	}
 }
 
+func TestExporterWriteToRejectsNilWriter(t *testing.T) {
+	t.Parallel()
+
+	exporter := metrics.NewExporter()
+
+	_, err := exporter.WriteTo(nil)
+	if err == nil {
+		t.Fatal("expected error when writer is nil")
+	}
+
+	if !strings.Contains(err.Error(), "writer is nil") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
 func TestExporterGuardsAgainstInvalidInputs(t *testing.T) {
 	t.Parallel()
 
