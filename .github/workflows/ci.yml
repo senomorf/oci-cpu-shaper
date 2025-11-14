@@ -100,6 +100,32 @@ jobs:
       - name: Run golangci-lint
         run: make lint
 
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Cache Go build artifacts
+        uses: actions/cache@v4
+        with:
+          path: .cache/go
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cache-
+
+      - name: Run actionlint
+        run: make actionlint
+
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
