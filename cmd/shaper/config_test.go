@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"oci-cpu-shaper/pkg/adapt"
+	"oci-cpu-shaper/pkg/shape"
 )
 
 const (
@@ -311,6 +312,186 @@ func TestLoadConfigReturnsDecodeError(t *testing.T) {
 
 func adaptDefault() adapt.Config {
 	return adapt.DefaultConfig()
+}
+
+func TestParseFloatDefault(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		input    string
+		fallback float64
+		want     float64
+	}{
+		{
+			name:     "empty string uses fallback",
+			input:    "   ",
+			fallback: 0.42,
+			want:     0.42,
+		},
+		{
+			name:     "invalid value uses fallback",
+			input:    "not-a-number",
+			fallback: 0.5,
+			want:     0.5,
+		},
+		{
+			name:     "valid value parsed",
+			input:    " 0.33 ",
+			fallback: 1.0,
+			want:     0.33,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := parseFloatDefault(testCase.input, testCase.fallback); got != testCase.want {
+				t.Fatalf("parseFloatDefault(%q)=%v want %v", testCase.input, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestEnvDurationFallbacks(t *testing.T) {
+	keyInvalid := "OCI_CPU_SHAPER_TEST_DURATION_INVALID"
+	t.Setenv(keyInvalid, "invalid")
+
+	if got := envDuration(keyInvalid, 3*time.Second); got != 3*time.Second {
+		t.Fatalf("expected invalid duration to use fallback, got %v", got)
+	}
+
+	keyBlank := "OCI_CPU_SHAPER_TEST_DURATION_BLANK"
+	t.Setenv(keyBlank, "   ")
+
+	if got := envDuration(keyBlank, 2*time.Second); got != 2*time.Second {
+		t.Fatalf("expected blank duration to use fallback, got %v", got)
+	}
+
+	keyValid := "OCI_CPU_SHAPER_TEST_DURATION_VALID"
+	t.Setenv(keyValid, "150ms")
+
+	if got := envDuration(keyValid, time.Second); got != 150*time.Millisecond {
+		t.Fatalf("expected valid duration 150ms, got %v", got)
+	}
+}
+
+func TestEnvIntRejectsNonPositive(t *testing.T) {
+	keyNegative := "OCI_CPU_SHAPER_TEST_INT_NEGATIVE"
+	t.Setenv(keyNegative, "-5")
+
+	if got := envInt(keyNegative, 7); got != 7 {
+		t.Fatalf("expected negative int to use fallback 7, got %d", got)
+	}
+
+	keyZero := "OCI_CPU_SHAPER_TEST_INT_ZERO"
+	t.Setenv(keyZero, "0")
+
+	if got := envInt(keyZero, 4); got != 4 {
+		t.Fatalf("expected zero int to use fallback 4, got %d", got)
+	}
+
+	keyValid := "OCI_CPU_SHAPER_TEST_INT_VALID"
+	t.Setenv(keyValid, " 5 ")
+
+	if got := envInt(keyValid, 1); got != 5 {
+		t.Fatalf("expected trimmed int 5, got %d", got)
+	}
+}
+
+func TestEnvStringTrimsAndFallback(t *testing.T) {
+	keyBlank := "OCI_CPU_SHAPER_TEST_STRING_BLANK"
+	t.Setenv(keyBlank, "   ")
+
+	if got := envString(keyBlank, "fallback"); got != "fallback" {
+		t.Fatalf("expected blank string to use fallback, got %q", got)
+	}
+
+	keyValue := "OCI_CPU_SHAPER_TEST_STRING_VALUE"
+	t.Setenv(keyValue, "  value  ")
+
+	if got := envString(keyValue, "fallback"); got != "value" {
+		t.Fatalf("expected trimmed value, got %q", got)
+	}
+}
+
+func TestEnvBoolEvaluation(t *testing.T) {
+	missingKey := "OCI_CPU_SHAPER_TEST_BOOL_MISSING"
+	if got := envBool(missingKey, true); got != true {
+		t.Fatalf("expected missing env bool to return fallback, got %t", got)
+	}
+
+	keyTrue := "OCI_CPU_SHAPER_TEST_BOOL_TRUE"
+	t.Setenv(keyTrue, "Yes")
+
+	if got := envBool(keyTrue, false); !got {
+		t.Fatal("expected affirmative string to parse as true")
+	}
+
+	keyFalse := "OCI_CPU_SHAPER_TEST_BOOL_FALSE"
+	t.Setenv(keyFalse, "0")
+
+	if got := envBool(keyFalse, true); got {
+		t.Fatal("expected zero to parse as false")
+	}
+
+	keyInvalid := "OCI_CPU_SHAPER_TEST_BOOL_INVALID"
+	t.Setenv(keyInvalid, "sometimes")
+
+	if got := envBool(keyInvalid, false); got {
+		t.Fatal("expected invalid bool to fall back to false")
+	}
+}
+
+func TestApplyEnvOverridesNormalisesValues(t *testing.T) {
+	t.Setenv(envPoolWorkers, "-3")
+	t.Setenv(envSlowInterval, "-5s")
+	t.Setenv(envRelaxedInterval, "0s")
+	t.Setenv(envFastInterval, "0s")
+
+	cfg := defaultRuntimeConfig()
+	cfg.Pool.Workers = 0
+	cfg.Pool.Quantum = 0
+	cfg.Controller.Interval = 0
+	cfg.Controller.RelaxedInterval = 0
+	cfg.Estimator.Interval = 0
+
+	applyEnvOverrides(&cfg)
+
+	defaults := adapt.DefaultConfig()
+
+	if cfg.Pool.Workers != 1 {
+		t.Fatalf("expected workers to normalise to 1, got %d", cfg.Pool.Workers)
+	}
+
+	if cfg.Pool.Quantum != shape.DefaultQuantum {
+		t.Fatalf(
+			"expected quantum to default to %v, got %v",
+			shape.DefaultQuantum,
+			cfg.Pool.Quantum,
+		)
+	}
+
+	if cfg.Controller.Interval != defaults.Interval {
+		t.Fatalf(
+			"expected controller interval to default to %v, got %v",
+			defaults.Interval,
+			cfg.Controller.Interval,
+		)
+	}
+
+	if cfg.Controller.RelaxedInterval != defaults.RelaxedInterval {
+		t.Fatalf(
+			"expected relaxed interval to default to %v, got %v",
+			defaults.RelaxedInterval,
+			cfg.Controller.RelaxedInterval,
+		)
+	}
+
+	if cfg.Estimator.Interval != time.Second {
+		t.Fatalf("expected estimator interval to default to 1s, got %v", cfg.Estimator.Interval)
+	}
 }
 
 func assertFloatEqual(t *testing.T, name string, got, want float64) {

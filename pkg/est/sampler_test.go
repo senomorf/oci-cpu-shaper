@@ -4,10 +4,13 @@ package est
 import (
 	"context"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -37,6 +40,12 @@ func (f *fakeSource) Snapshot(_ context.Context) (Snapshot, error) {
 	f.index++
 
 	return snap, nil
+}
+
+type SnapshotFunc func(context.Context) (Snapshot, error)
+
+func (f SnapshotFunc) Snapshot(ctx context.Context) (Snapshot, error) {
+	return f(ctx)
 }
 
 func TestSamplerEmitsObservations(t *testing.T) {
@@ -296,5 +305,150 @@ func TestSamplerRunRejectsDoubleStart(t *testing.T) {
 
 	if _, ok := <-second; ok {
 		t.Fatalf("expected second channel to be closed")
+	}
+}
+
+func TestSamplerEmitsErrorObservationWhenLoopFails(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+
+	source := SnapshotFunc(func(context.Context) (Snapshot, error) {
+		count := calls.Add(1)
+		if count == 1 {
+			return Snapshot{Idle: 1, Total: 10}, nil
+		}
+
+		return Snapshot{}, errTestBoom
+	})
+
+	sampler := NewSampler(source, time.Millisecond)
+	sampler.now = func() time.Time { return time.Unix(42, 0) }
+
+	ctx := t.Context()
+
+	observations := sampler.Run(ctx)
+
+	select {
+	case observation := <-observations:
+		if observation.Err == nil {
+			t.Fatalf("expected error observation, got %+v", observation)
+		}
+
+		if !strings.Contains(observation.Err.Error(), "sample snapshot") {
+			t.Fatalf("expected sample snapshot error, got %v", observation.Err)
+		}
+
+		if observation.Timestamp != time.Unix(42, 0) {
+			t.Fatalf("expected timestamp to use sampler clock, got %v", observation.Timestamp)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for error observation")
+	}
+}
+
+func TestSamplerPublishObservationContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	sampler := new(Sampler)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	observations := make(chan Observation)
+
+	if sampler.publishObservation(ctx, observations, Observation{
+		Timestamp:    time.Time{},
+		Utilisation:  0.5,
+		BusyJiffies:  0,
+		TotalJiffies: 0,
+		Err:          nil,
+	}) {
+		t.Fatal("expected publishObservation to report cancellation")
+	}
+
+	select {
+	case observation := <-observations:
+		t.Fatalf("expected channel to remain empty, received %#v", observation)
+	default:
+	}
+}
+
+func TestSamplerTimeSourceFallbacksToNow(t *testing.T) {
+	t.Parallel()
+
+	var sampler Sampler
+
+	nowFn := sampler.timeSource()
+	if nowFn == nil {
+		t.Fatal("expected timeSource to return a non-nil function")
+	}
+
+	before := time.Now()
+
+	after := nowFn()
+	if after.Before(before.Add(-time.Second)) || after.After(before.Add(5*time.Second)) {
+		t.Fatalf("unexpected timestamp from fallback: %v", after)
+	}
+}
+
+func TestParseCPUStatErrorCases(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		input   string
+		matches error
+	}{
+		{
+			name:    "empty",
+			input:   "",
+			matches: io.EOF,
+		},
+		{
+			name:    "unexpected prefix",
+			input:   "cpu0 1 2 3\n",
+			matches: ErrUnexpectedProcStatFormat,
+		},
+		{
+			name:    "too few fields",
+			input:   "cpu 1 2 3\n",
+			matches: ErrProcStatTooShort,
+		},
+		{
+			name:    "parse failure",
+			input:   "cpu 1 two 3 4 5\n",
+			matches: strconv.ErrSyntax,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseCPUStat(strings.NewReader(testCase.input))
+			if err == nil {
+				t.Fatalf("expected error for %s", testCase.name)
+			}
+
+			if !errors.Is(err, testCase.matches) {
+				t.Fatalf("expected error to wrap %v, got %v", testCase.matches, err)
+			}
+		})
+	}
+}
+
+func TestFileSourceSnapshotOpenFailure(t *testing.T) {
+	t.Parallel()
+
+	missingPath := filepath.Join(t.TempDir(), "missing.stat")
+	source := FileSource{Path: missingPath}
+
+	_, err := source.Snapshot(context.Background())
+	if err == nil {
+		t.Fatal("expected error when opening missing file")
+	}
+
+	if !strings.Contains(err.Error(), "open") {
+		t.Fatalf("expected open error, got %v", err)
 	}
 }

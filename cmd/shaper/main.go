@@ -801,8 +801,12 @@ func startMetricsServer(
 	return nil
 }
 
+type p95CPUQuerier interface {
+	QueryP95CPU(ctx context.Context, resourceID string, last7d bool) (float32, error)
+}
+
 type instancePrincipalMetricsClient struct {
-	client *oci.Client
+	client p95CPUQuerier
 }
 
 func (m *instancePrincipalMetricsClient) QueryP95CPU(

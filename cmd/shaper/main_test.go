@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	"oci-cpu-shaper/internal/buildinfo"
 	"oci-cpu-shaper/pkg/adapt"
+	metricshttp "oci-cpu-shaper/pkg/http/metrics"
 	"oci-cpu-shaper/pkg/imds"
 	"oci-cpu-shaper/pkg/oci"
 )
@@ -32,6 +33,10 @@ var (
 	errRegionDown        = errors.New("region down")
 	errInstanceDown      = errors.New("id down")
 	errShapeDown         = errors.New("shape down")
+	errStubPrincipal     = errors.New("stub: principal client")
+	errStubQueryFailure  = errors.New("stub: query failure")
+	errFailingWriter     = errors.New("failing writer: write failed")
+	errMetricsServerBoom = errors.New("metrics server start failure")
 )
 
 const (
@@ -41,7 +46,10 @@ const (
 	imdsAuthHeaderKey = "Authorization"
 	imdsAuthHeaderVal = "Bearer Oracle"
 	metricsServerWait = time.Second
+	testMetricsBind   = "127.0.0.1:0"
 )
+
+type contextMarkerKey string
 
 func TestParseArgsDefaults(t *testing.T) {
 	t.Parallel()
@@ -207,6 +215,148 @@ func TestParseArgsReturnsFlagError(t *testing.T) {
 		!strings.Contains(err.Error(), "flag provided but not defined") {
 		// Accept either standard flag error or ErrHelp depending on flag parsing behavior.
 		t.Fatalf("unexpected error type: %v", err)
+	}
+}
+
+func TestNormalizeOptionsNilOptions(t *testing.T) {
+	t.Parallel()
+
+	err := normalizeOptions(nil)
+	if err != nil {
+		t.Fatalf("normalizeOptions returned error for nil options: %v", err)
+	}
+}
+
+func TestNormalizeOptionsTrimsAndDefaults(t *testing.T) {
+	t.Parallel()
+
+	opts := &options{
+		configPath:    " ",
+		logLevel:      "  ",
+		mode:          "  ENFORCE  ",
+		shutdownAfter: 0,
+		showVersion:   false,
+	}
+
+	err := normalizeOptions(opts)
+	if err != nil {
+		t.Fatalf("normalizeOptions returned error: %v", err)
+	}
+
+	if opts.mode != modeEnforce {
+		t.Fatalf("expected normalized mode %q, got %q", modeEnforce, opts.mode)
+	}
+
+	if opts.logLevel != defaultLogLevel {
+		t.Fatalf("expected default log level %q, got %q", defaultLogLevel, opts.logLevel)
+	}
+
+	if opts.configPath != defaultConfigPath {
+		t.Fatalf("expected default config path %q, got %q", defaultConfigPath, opts.configPath)
+	}
+}
+
+func TestNormalizeOptionsRejectsUnsupportedMode(t *testing.T) {
+	t.Parallel()
+
+	opts := &options{
+		configPath:    defaultConfigPath,
+		logLevel:      defaultLogLevel,
+		mode:          "invalid",
+		shutdownAfter: 0,
+		showVersion:   false,
+	}
+
+	err := normalizeOptions(opts)
+	if err == nil {
+		t.Fatal("expected error for unsupported mode")
+	}
+
+	if !errors.Is(err, errUnsupportedMode) {
+		t.Fatalf("expected errUnsupportedMode, got %v", err)
+	}
+}
+
+func TestNormalizeOptionsRejectsNegativeShutdown(t *testing.T) {
+	t.Parallel()
+
+	opts := &options{
+		configPath:    defaultConfigPath,
+		logLevel:      defaultLogLevel,
+		mode:          modeDryRun,
+		shutdownAfter: -time.Second,
+		showVersion:   false,
+	}
+
+	err := normalizeOptions(opts)
+	if err == nil {
+		t.Fatal("expected error for negative shutdown")
+	}
+
+	if !errors.Is(err, errInvalidShutdownAfter) {
+		t.Fatalf("expected errInvalidShutdownAfter, got %v", err)
+	}
+}
+
+func TestNormalizeOptionsAppliesDefaultMode(t *testing.T) {
+	t.Parallel()
+
+	opts := &options{
+		configPath:    defaultConfigPath,
+		logLevel:      defaultLogLevel,
+		mode:          "   ",
+		shutdownAfter: 0,
+		showVersion:   false,
+	}
+
+	err := normalizeOptions(opts)
+	if err != nil {
+		t.Fatalf("normalizeOptions returned error: %v", err)
+	}
+
+	if opts.mode != modeDryRun {
+		t.Fatalf("expected default mode %q, got %q", modeDryRun, opts.mode)
+	}
+}
+
+func TestBuildMetricsExporterUsesOverride(t *testing.T) {
+	t.Parallel()
+
+	expected := metricshttp.NewExporter()
+	deps := defaultRunDeps()
+	deps.newMetricsExporter = func() *metricshttp.Exporter {
+		return expected
+	}
+
+	exporter := buildMetricsExporter(deps)
+	if exporter != expected {
+		t.Fatalf("expected override exporter, got %p", exporter)
+	}
+}
+
+func TestBuildMetricsExporterFallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	deps := defaultRunDeps()
+	deps.newMetricsExporter = func() *metricshttp.Exporter {
+		return nil
+	}
+
+	exporter := buildMetricsExporter(deps)
+	if exporter == nil {
+		t.Fatal("expected fallback exporter, got nil")
+	}
+}
+
+func TestBuildMetricsExporterDefaultWithoutOverride(t *testing.T) {
+	t.Parallel()
+
+	deps := defaultRunDeps()
+	deps.newMetricsExporter = nil
+
+	exporter := buildMetricsExporter(deps)
+	if exporter == nil {
+		t.Fatal("expected default exporter when override is absent")
 	}
 }
 
@@ -552,6 +702,130 @@ func TestRunHandlesControllerFactoryError(t *testing.T) {
 	}
 }
 
+func TestRunReturnsRuntimeErrorWhenMetricsServerFails(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.ErrorLevel)
+	logger := zap.New(core)
+
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return stubBuildInfo("test-version", "test-commit", "2024-05-01")
+	}
+	deps.newLogger = func(level string) (*zap.Logger, error) {
+		if level != defaultLogLevel {
+			t.Fatalf("expected default log level %q, got %q", defaultLogLevel, level)
+		}
+
+		return logger, nil
+	}
+	deps.newIMDS = func() imds.Client {
+		return newOfflineStubIMDS()
+	}
+	deps.loadConfig = loadConfigStub()
+
+	ctrl := new(stubController)
+	deps.newController = func(
+		context.Context,
+		string,
+		runtimeConfig,
+		imds.Client,
+		adapt.MetricsRecorder,
+	) (adapt.Controller, poolStarter, error) {
+		return ctrl, nil, nil
+	}
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return errMetricsServerBoom
+	}
+
+	exitCode := run(t.Context(), nil, deps, io.Discard)
+	if exitCode != exitCodeRuntimeError {
+		t.Fatalf("expected runtime error exit code, got %d", exitCode)
+	}
+
+	if ctrl.runCalled {
+		t.Fatal("expected controller Run not to be called when metrics server fails")
+	}
+
+	entries := observed.FilterMessage("failed to start metrics server").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected metrics server failure log entry, got %+v", observed.All())
+	}
+}
+
+//nolint:funlen // coverage-focused test exercises multiple failure branches
+func TestRunReturnsRuntimeErrorWhenMetadataResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	core, observed := observer.New(zap.ErrorLevel)
+	logger := zap.New(core)
+
+	deps := defaultRunDeps()
+	deps.currentBuildInfo = func() buildinfo.Info {
+		return stubBuildInfo("test-version", "test-commit", "2024-05-01")
+	}
+	deps.newLogger = func(level string) (*zap.Logger, error) {
+		if level != defaultLogLevel {
+			t.Fatalf("expected default log level %q, got %q", defaultLogLevel, level)
+		}
+
+		return logger, nil
+	}
+	deps.loadConfig = func(string) (runtimeConfig, error) {
+		cfg := defaultRuntimeConfig()
+		cfg.OCI.CompartmentID = ""
+		cfg.OCI.Region = ""
+
+		return cfg, nil
+	}
+	deps.startMetricsServer = func(context.Context, *zap.Logger, string, http.Handler) error {
+		return nil
+	}
+
+	failingIMDS := newLoggingStubIMDS(
+		"",
+		errStubQueryFailure,
+		"",
+		errStubQueryFailure,
+		"",
+		nil,
+		"",
+		errStubQueryFailure,
+		stubShapeConfig(0, 0),
+		nil,
+	)
+	deps.newIMDS = func() imds.Client {
+		return failingIMDS
+	}
+
+	controllerCalled := false
+	deps.newController = func(
+		context.Context,
+		string,
+		runtimeConfig,
+		imds.Client,
+		adapt.MetricsRecorder,
+	) (adapt.Controller, poolStarter, error) {
+		controllerCalled = true
+
+		return new(stubController), nil, nil
+	}
+
+	exitCode := run(t.Context(), nil, deps, io.Discard)
+	if exitCode != exitCodeRuntimeError {
+		t.Fatalf("expected runtime error exit code, got %d", exitCode)
+	}
+
+	if controllerCalled {
+		t.Fatal("expected controller factory not to be invoked when metadata resolution fails")
+	}
+
+	entries := observed.FilterMessage("failed to resolve oci metadata").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected metadata failure log entry, got %+v", observed.All())
+	}
+}
+
 //nolint:funlen // integration-style test exercises metrics wiring end to end.
 func TestRunExposesMetricsOffline(t *testing.T) {
 	t.Parallel()
@@ -796,6 +1070,44 @@ func TestDefaultControllerFactoryReturnsNoopForMode(t *testing.T) {
 	}
 }
 
+func TestDefaultControllerFactoryTrimsModeToDryRun(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = stubCompartmentID
+	cfg.OCI.Region = stubRegion
+
+	imdsClient := new(stubIMDSClient)
+	imdsClient.instanceID = "ocid1.instance.oc1..dryrun"
+
+	fakeMetrics := newStubMetricsClient()
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string, string) (oci.MetricsClient, error) {
+			return fakeMetrics, nil
+		},
+	)
+
+	controller, pool, err := defaultControllerFactory(
+		ctx,
+		"   ",
+		cfg,
+		imdsClient,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("defaultControllerFactory returned error: %v", err)
+	}
+
+	if pool == nil {
+		t.Fatal("expected pool to be created for adaptive controller")
+	}
+
+	if controller.Mode() != modeDryRun {
+		t.Fatalf("expected modeDryRun, got %q", controller.Mode())
+	}
+}
+
 func TestDefaultControllerFactoryBuildsAdaptiveController(t *testing.T) {
 	t.Parallel()
 
@@ -992,6 +1304,48 @@ func TestBuildAdaptiveControllerOfflineSkipsExternalDependencies(t *testing.T) {
 
 	if controller.Mode() != modeDryRun {
 		t.Fatalf("unexpected mode: %s", controller.Mode())
+	}
+}
+
+func TestBuildAdaptiveControllerRequiresCompartmentID(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.InstanceID = "ocid1.instance.oc1..missing-compartment"
+	cfg.OCI.CompartmentID = ""
+	cfg.OCI.Region = stubRegion
+
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string, string) (oci.MetricsClient, error) {
+			return newStubMetricsClient(), nil
+		},
+	)
+
+	_, _, err := buildAdaptiveController(ctx, modeEnforce, cfg, new(stubIMDSClient), nil)
+	if !errors.Is(err, errControllerCompartmentRequired) {
+		t.Fatalf("expected errControllerCompartmentRequired, got %v", err)
+	}
+}
+
+func TestBuildAdaptiveControllerRequiresRegion(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.InstanceID = "ocid1.instance.oc1..missing-region"
+	cfg.OCI.CompartmentID = stubCompartmentID
+	cfg.OCI.Region = ""
+
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(string, string) (oci.MetricsClient, error) {
+			return newStubMetricsClient(), nil
+		},
+	)
+
+	_, _, err := buildAdaptiveController(ctx, modeEnforce, cfg, new(stubIMDSClient), nil)
+	if !errors.Is(err, errControllerRegionRequired) {
+		t.Fatalf("expected errControllerRegionRequired, got %v", err)
 	}
 }
 
@@ -1250,6 +1604,42 @@ func TestLogIMDSMetadataOfflineSkipsIMDS(t *testing.T) {
 
 	assertNoIMDSCalls(t, client)
 	assertOfflineLog(t, observed, "ocid1.instance.oc1..offline")
+}
+
+func TestResolveCompartmentAndRegionOfflineSkipsLookups(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = "  ocid1.compartment.oc1..offline  "
+	cfg.OCI.Region = "  us-phoenix-1  "
+	cfg.OCI.Offline = true
+
+	metadata, err := resolveCompartmentAndRegion(t.Context(), cfg, nil)
+	if err != nil {
+		t.Fatalf("resolveCompartmentAndRegion returned error: %v", err)
+	}
+
+	if metadata.CompartmentID != "ocid1.compartment.oc1..offline" {
+		t.Fatalf("expected trimmed compartment id, got %q", metadata.CompartmentID)
+	}
+
+	if metadata.Region != "us-phoenix-1" {
+		t.Fatalf("expected trimmed region, got %q", metadata.Region)
+	}
+}
+
+func TestResolveCompartmentAndRegionRequiresIMDSOnline(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.OCI.CompartmentID = ""
+	cfg.OCI.Region = ""
+	cfg.OCI.Offline = false
+
+	_, err := resolveCompartmentAndRegion(t.Context(), cfg, nil)
+	if !errors.Is(err, errControllerIMDSRequired) {
+		t.Fatalf("expected errControllerIMDSRequired, got %v", err)
+	}
 }
 
 func TestResolveCompartmentAndRegionUsesOverrides(t *testing.T) {
@@ -1792,6 +2182,70 @@ func (s *stubMetricsAdapter) QueryP95CPU(context.Context, string) (float64, erro
 	return 0.25, nil
 }
 
+type failingWriter struct {
+	writes int
+}
+
+func (f *failingWriter) Write(_ []byte) (int, error) {
+	f.writes++
+
+	return 0, errFailingWriter
+}
+
+func freeTCPAddress(t *testing.T) string {
+	t.Helper()
+
+	var listenCfg net.ListenConfig
+
+	listener, err := listenCfg.Listen(context.Background(), "tcp", testMetricsBind)
+	if err != nil {
+		t.Fatalf("allocate tcp port: %v", err)
+	}
+
+	addr := listener.Addr().String()
+
+	closeErr := listener.Close()
+	if closeErr != nil {
+		t.Fatalf("close listener: %v", closeErr)
+	}
+
+	return addr
+}
+
+type stubP95Querier struct {
+	value        float32
+	err          error
+	calls        int
+	lastResource string
+	lastLast7d   bool
+}
+
+func (s *stubP95Querier) QueryP95CPU(
+	_ context.Context,
+	resourceID string,
+	last7d bool,
+) (float32, error) {
+	s.calls++
+	s.lastResource = resourceID
+	s.lastLast7d = last7d
+
+	if s.err != nil {
+		return 0, s.err
+	}
+
+	return s.value, nil
+}
+
+func newStubP95Querier(value float32, err error) *stubP95Querier {
+	return &stubP95Querier{
+		value:        value,
+		err:          err,
+		calls:        0,
+		lastResource: "",
+		lastLast7d:   false,
+	}
+}
+
 type stubIMDSClient struct {
 	region               string
 	regionErr            error
@@ -1973,5 +2427,628 @@ func assertOfflineLog(t *testing.T, observed *observer.ObservedLogs, expectedID 
 	offline, ok := fieldBool(entry.Context, "offline")
 	if !ok || !offline {
 		t.Fatalf("expected offline field to be true, got %v (ok=%v)", offline, ok)
+	}
+}
+
+//nolint:paralleltest // modifies global factory for controlled coverage.
+func TestBuildInstancePrincipalMetricsClientUsesFactory(t *testing.T) {
+	previousFactory := newInstancePrincipalClient
+
+	t.Cleanup(func() {
+		newInstancePrincipalClient = previousFactory
+	})
+
+	querier := newStubP95Querier(12.5, nil)
+
+	var (
+		receivedCompartment string
+		receivedRegion      string
+	)
+
+	newInstancePrincipalClient = func(compartmentID, region string) (p95CPUQuerier, error) {
+		receivedCompartment = compartmentID
+		receivedRegion = region
+
+		return querier, nil
+	}
+
+	client, err := buildInstancePrincipalMetricsClient("ocid.compartment", "us-test-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	typed, ok := client.(*instancePrincipalMetricsClient)
+	if !ok {
+		t.Fatalf("expected instancePrincipalMetricsClient, got %T", client)
+	}
+
+	if typed.client != querier {
+		t.Fatalf("expected factory result to be wrapped, got %v", typed.client)
+	}
+
+	if receivedCompartment != "ocid.compartment" {
+		t.Fatalf("expected compartment to propagate, got %q", receivedCompartment)
+	}
+
+	if receivedRegion != "us-test-1" {
+		t.Fatalf("expected region to propagate, got %q", receivedRegion)
+	}
+}
+
+//nolint:paralleltest // modifies global factory for controlled coverage.
+func TestBuildInstancePrincipalMetricsClientPropagatesError(t *testing.T) {
+	previousFactory := newInstancePrincipalClient
+
+	t.Cleanup(func() {
+		newInstancePrincipalClient = previousFactory
+	})
+
+	newInstancePrincipalClient = func(string, string) (p95CPUQuerier, error) {
+		return nil, errStubPrincipal
+	}
+
+	_, err := buildInstancePrincipalMetricsClient("ocid.compartment", "us-test-1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !errors.Is(err, errStubPrincipal) {
+		t.Fatalf("expected errStubPrincipal, got %v", err)
+	}
+}
+
+func TestInstancePrincipalMetricsClientNilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var client *instancePrincipalMetricsClient
+
+	_, err := client.QueryP95CPU(context.Background(), "ocid.instance")
+	if err == nil {
+		t.Fatal("expected error for nil receiver")
+	}
+
+	if !errors.Is(err, errMetricsDelegateNil) {
+		t.Fatalf("expected errMetricsDelegateNil, got %v", err)
+	}
+}
+
+func TestInstancePrincipalMetricsClientNilDelegate(t *testing.T) {
+	t.Parallel()
+
+	client := &instancePrincipalMetricsClient{client: nil}
+
+	_, err := client.QueryP95CPU(context.Background(), "ocid.instance")
+	if err == nil {
+		t.Fatal("expected error for nil delegate")
+	}
+
+	if !errors.Is(err, errMetricsDelegateNil) {
+		t.Fatalf("expected errMetricsDelegateNil, got %v", err)
+	}
+}
+
+func TestInstancePrincipalMetricsClientDelegateError(t *testing.T) {
+	t.Parallel()
+
+	querier := newStubP95Querier(0, errStubQueryFailure)
+	client := &instancePrincipalMetricsClient{client: querier}
+
+	_, err := client.QueryP95CPU(context.Background(), "ocid.instance")
+	if err == nil {
+		t.Fatal("expected delegated error")
+	}
+
+	if !errors.Is(err, errStubQueryFailure) {
+		t.Fatalf("expected errStubQueryFailure, got %v", err)
+	}
+
+	if querier.calls != 1 {
+		t.Fatalf("expected delegate to be invoked once, got %d", querier.calls)
+	}
+
+	if querier.lastResource != "ocid.instance" {
+		t.Fatalf("expected resource to propagate, got %q", querier.lastResource)
+	}
+
+	if !querier.lastLast7d {
+		t.Fatal("expected last7d flag to be true")
+	}
+}
+
+func TestInstancePrincipalMetricsClientSuccess(t *testing.T) {
+	t.Parallel()
+
+	querier := newStubP95Querier(7.5, nil)
+	client := &instancePrincipalMetricsClient{client: querier}
+
+	value, err := client.QueryP95CPU(context.Background(), "ocid.instance")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if value != float64(querier.value) {
+		t.Fatalf("unexpected value: got %.2f want %.2f", value, querier.value)
+	}
+
+	if querier.calls != 1 {
+		t.Fatalf("expected delegate to be called once, got %d", querier.calls)
+	}
+
+	if querier.lastResource != "ocid.instance" {
+		t.Fatalf("expected resource to propagate, got %q", querier.lastResource)
+	}
+
+	if !querier.lastLast7d {
+		t.Fatal("expected last7d flag to be true")
+	}
+}
+
+func TestWithMetricsClientFactoryNilContext(t *testing.T) {
+	t.Parallel()
+
+	var nilContext context.Context
+
+	ctx := withMetricsClientFactory(nilContext, nil)
+	if ctx == nil {
+		t.Fatal("expected background context when nil is provided")
+	}
+}
+
+func TestWithMetricsClientFactoryNilFactoryReturnsOriginal(t *testing.T) {
+	t.Parallel()
+
+	original := context.WithValue(context.Background(), contextMarkerKey("marker"), "value")
+
+	ctx := withMetricsClientFactory(original, nil)
+	if ctx != original {
+		t.Fatal("expected context to be returned unchanged when factory is nil")
+	}
+}
+
+func TestMetricsClientFactoryFromContextUsesStoredFactory(t *testing.T) {
+	t.Parallel()
+
+	stub := new(stubMetricsAdapter)
+	ctx := withMetricsClientFactory(
+		context.Background(),
+		func(compartmentID, region string) (oci.MetricsClient, error) {
+			if compartmentID != "ocid.compartment" {
+				t.Fatalf("unexpected compartment %q", compartmentID)
+			}
+
+			if region != "us-test-1" {
+				t.Fatalf("unexpected region %q", region)
+			}
+
+			return stub, nil
+		},
+	)
+
+	factory := metricsClientFactoryFromContext(ctx)
+
+	client, err := factory("ocid.compartment", "us-test-1")
+	if err != nil {
+		t.Fatalf("factory returned error: %v", err)
+	}
+
+	if client != stub {
+		t.Fatalf("expected stored factory to be used, got %T", client)
+	}
+}
+
+//nolint:paralleltest // mutates global factory seams.
+func TestMetricsClientFactoryFromContextDefaultsWhenMissing(t *testing.T) {
+	previous := newInstancePrincipalClient
+
+	t.Cleanup(func() {
+		newInstancePrincipalClient = previous
+	})
+
+	newInstancePrincipalClient = func(string, string) (p95CPUQuerier, error) {
+		return nil, errStubPrincipal
+	}
+
+	factory := metricsClientFactoryFromContext(context.Background())
+
+	_, err := factory("ocid.compartment", "us-test-1")
+	if err == nil {
+		t.Fatal("expected default factory to propagate error")
+	}
+
+	if !errors.Is(err, errStubPrincipal) {
+		t.Fatalf("expected errStubPrincipal, got %v", err)
+	}
+}
+
+//nolint:paralleltest // mutates global factory seams.
+func TestMetricsClientFactoryFromContextSkipsNilValue(t *testing.T) {
+	previous := newInstancePrincipalClient
+
+	t.Cleanup(func() {
+		newInstancePrincipalClient = previous
+	})
+
+	called := 0
+	newInstancePrincipalClient = func(string, string) (p95CPUQuerier, error) {
+		called++
+
+		return nil, errStubPrincipal
+	}
+
+	base := context.WithValue(
+		context.Background(),
+		metricsClientFactoryKey{},
+		metricsClientFactory(nil),
+	)
+	factory := metricsClientFactoryFromContext(base)
+
+	_, err := factory("ocid.compartment", "us-test-1")
+	if err == nil {
+		t.Fatal("expected default factory to propagate error")
+	}
+
+	if !errors.Is(err, errStubPrincipal) {
+		t.Fatalf("expected errStubPrincipal, got %v", err)
+	}
+
+	if called != 1 {
+		t.Fatalf("expected fallback factory to be invoked once, got %d", called)
+	}
+}
+
+func TestExitCodeForConfigError(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{
+			name: "invalid config",
+			err:  adapt.ErrInvalidConfig,
+			want: exitCodeParseError,
+		},
+		{
+			name: "runtime error",
+			err:  errStubControllerRun,
+			want: exitCodeRuntimeError,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: exitCodeRuntimeError,
+		},
+	}
+
+	for _, tc := range testCases {
+		testCase := tc
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := exitCodeForConfigError(testCase.err); got != testCase.want {
+				t.Fatalf("expected %d, got %d", testCase.want, got)
+			}
+		})
+	}
+}
+
+func TestWriteErrorHandlesScenarios(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil error returns code", func(t *testing.T) {
+		t.Parallel()
+
+		const code = 7
+
+		var buffer bytes.Buffer
+		if got := writeError(&buffer, nil, code); got != code {
+			t.Fatalf("unexpected code %d", got)
+		}
+
+		if buffer.Len() != 0 {
+			t.Fatalf("expected no output, got %q", buffer.String())
+		}
+	})
+
+	t.Run("writer succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		const code = 11
+
+		var buffer bytes.Buffer
+
+		got := writeError(&buffer, errStubControllerRun, code)
+		if got != code {
+			t.Fatalf("unexpected code %d", got)
+		}
+
+		if !strings.Contains(buffer.String(), errStubControllerRun.Error()) {
+			t.Fatalf("expected error message in buffer, got %q", buffer.String())
+		}
+	})
+
+	t.Run("writer failure still returns code", func(t *testing.T) {
+		t.Parallel()
+
+		const code = 19
+
+		writer := &failingWriter{writes: 0}
+
+		got := writeError(writer, errStubControllerRun, code)
+		if got != code {
+			t.Fatalf("unexpected code %d", got)
+		}
+
+		if writer.writes != 1 {
+			t.Fatalf("expected one write attempt, got %d", writer.writes)
+		}
+	})
+}
+
+func TestStartMetricsServerSkipsWhenAddressOrHandlerMissing(t *testing.T) {
+	t.Parallel()
+
+	err := startMetricsServer(context.Background(), zap.NewNop(), "   ", http.NewServeMux())
+	if err != nil {
+		t.Fatalf("expected trimmed empty address to skip, got %v", err)
+	}
+
+	err = startMetricsServer(context.Background(), zap.NewNop(), testMetricsBind, nil)
+	if err != nil {
+		t.Fatalf("expected nil handler to skip, got %v", err)
+	}
+}
+
+func TestStartMetricsServerRequiresContext(t *testing.T) {
+	t.Parallel()
+
+	var nilContext context.Context
+
+	err := startMetricsServer(nilContext, zap.NewNop(), testMetricsBind, http.NewServeMux())
+	if !errors.Is(err, errMetricsContextRequired) {
+		t.Fatalf("expected errMetricsContextRequired, got %v", err)
+	}
+}
+
+//nolint:funlen // test exercises server lifecycle and shutdown paths in one flow.
+func TestStartMetricsServerServesRequests(t *testing.T) {
+	t.Parallel()
+
+	addr := freeTCPAddress(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	requestCh := make(chan struct{}, 1)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		requestCh <- struct{}{}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
+	err := startMetricsServer(ctx, nil, addr, mux)
+	if err != nil {
+		t.Fatalf("startMetricsServer returned error: %v", err)
+	}
+
+	url := fmt.Sprintf("http://%s/metrics", addr)
+	deadline := time.Now().Add(2 * time.Second)
+
+	for {
+		requestCtx, cancelRequest := context.WithTimeout(ctx, 500*time.Millisecond)
+
+		req, reqErr := http.NewRequestWithContext(requestCtx, http.MethodGet, url, nil)
+		if reqErr != nil {
+			cancelRequest()
+			t.Fatalf("build http request: %v", reqErr)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+
+			cancelRequest()
+
+			break
+		}
+
+		cancelRequest()
+
+		if time.Now().After(deadline) {
+			t.Fatalf("failed to reach metrics endpoint: %v", err)
+		}
+
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	select {
+	case <-requestCh:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected handler to observe request")
+	}
+
+	cancel()
+
+	// Allow shutdown goroutine to process the cancellation.
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestConfigureMetricsHandlesNilExporter(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+
+	var deps runDeps
+
+	err := configureMetrics(context.Background(), deps, zap.NewNop(), cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("configureMetrics returned error: %v", err)
+	}
+}
+
+func TestConfigureMetricsSkipsServerWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	exporter := metricshttp.NewExporter()
+	pool := &stubPoolStarter{startCount: 0, workers: 3, quantum: 150 * time.Millisecond}
+	cfg := defaultRuntimeConfig()
+	cfg.HTTP.Bind = testMetricsBind
+
+	var deps runDeps
+
+	err := configureMetrics(context.Background(), deps, zap.NewNop(), cfg, exporter, pool, nil)
+	if err != nil {
+		t.Fatalf("configureMetrics returned error: %v", err)
+	}
+
+	snapshot, err := exporter.Render()
+	if err != nil {
+		t.Fatalf("render metrics: %v", err)
+	}
+
+	if !bytes.Contains(snapshot, []byte("worker_count 3")) {
+		t.Fatalf("expected worker count metric, got %s", snapshot)
+	}
+
+	if !bytes.Contains(snapshot, []byte("duty_cycle_ms 150.000")) {
+		t.Fatalf("expected duty cycle metric, got %s", snapshot)
+	}
+}
+
+//nolint:cyclop,funlen // comprehensive test covers handler wiring and response validation.
+func TestConfigureMetricsRegistersHandlers(t *testing.T) {
+	t.Parallel()
+
+	exporter := metricshttp.NewExporter()
+	pool := &stubPoolStarter{startCount: 0, workers: 5, quantum: 200 * time.Millisecond}
+	controller := &stubController{
+		mode:        modeDryRun,
+		runErr:      nil,
+		runCalled:   false,
+		deadline:    time.Time{},
+		deadlineSet: false,
+		state:       adapt.StateFallback,
+		lastErr:     errStubControllerRun,
+		estErr:      errStubQueryFailure,
+	}
+
+	cfg := defaultRuntimeConfig()
+	cfg.HTTP.Bind = testMetricsBind
+
+	var (
+		capturedAddr     string
+		capturedHandler  http.Handler
+		startInvocations int
+	)
+
+	var deps runDeps
+
+	deps.startMetricsServer = func(ctx context.Context, logger *zap.Logger, addr string, handler http.Handler) error {
+		if ctx == nil {
+			t.Fatal("expected context to be forwarded")
+		}
+
+		if logger == nil {
+			t.Fatal("expected logger to be forwarded")
+		}
+
+		capturedAddr = addr
+		capturedHandler = handler
+		startInvocations++
+
+		return nil
+	}
+
+	logger := zap.NewNop()
+
+	err := configureMetrics(context.Background(), deps, logger, cfg, exporter, pool, controller)
+	if err != nil {
+		t.Fatalf("configureMetrics returned error: %v", err)
+	}
+
+	if startInvocations != 1 {
+		t.Fatalf("expected startMetricsServer to be invoked once, got %d", startInvocations)
+	}
+
+	if capturedHandler == nil {
+		t.Fatal("expected handler to be captured")
+	}
+
+	if capturedAddr != cfg.HTTP.Bind {
+		t.Fatalf("expected bind address %s, got %s", cfg.HTTP.Bind, capturedAddr)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRecorder := httptest.NewRecorder()
+	capturedHandler.ServeHTTP(metricsRecorder, metricsRequest)
+
+	if metricsRecorder.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected metrics response 200, got %d", metricsRecorder.Result().StatusCode)
+	}
+
+	metricsBody := metricsRecorder.Body.Bytes()
+	if !bytes.Contains(metricsBody, []byte("worker_count 5")) {
+		t.Fatalf("expected metrics to include worker count, got %s", metricsBody)
+	}
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	healthRecorder := httptest.NewRecorder()
+	capturedHandler.ServeHTTP(healthRecorder, healthRequest)
+
+	if healthRecorder.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected health status 200, got %d", healthRecorder.Result().StatusCode)
+	}
+
+	healthBody := healthRecorder.Body.Bytes()
+	if !bytes.Contains(healthBody, []byte("\"state\":\"fallback\"")) {
+		t.Fatalf("expected fallback state in health response, got %s", healthBody)
+	}
+
+	if !bytes.Contains(healthBody, []byte(errStubControllerRun.Error())) {
+		t.Fatalf("expected controller error in health response, got %s", healthBody)
+	}
+
+	if !bytes.Contains(healthBody, []byte(errStubQueryFailure.Error())) {
+		t.Fatalf("expected estimator error in health response, got %s", healthBody)
+	}
+}
+
+func TestConfigureMetricsWithoutController(t *testing.T) {
+	t.Parallel()
+
+	exporter := metricshttp.NewExporter()
+	cfg := defaultRuntimeConfig()
+	cfg.HTTP.Bind = testMetricsBind
+
+	var capturedHandler http.Handler
+
+	var deps runDeps
+
+	deps.startMetricsServer = func(_ context.Context, _ *zap.Logger, _ string, handler http.Handler) error {
+		capturedHandler = handler
+
+		return nil
+	}
+
+	err := configureMetrics(context.Background(), deps, zap.NewNop(), cfg, exporter, nil, nil)
+	if err != nil {
+		t.Fatalf("configureMetrics returned error: %v", err)
+	}
+
+	if capturedHandler == nil {
+		t.Fatal("expected handler to be captured")
+	}
+
+	healthRequest := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+	capturedHandler.ServeHTTP(recorder, healthRequest)
+
+	if recorder.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing health handler, got %d", recorder.Result().StatusCode)
 	}
 }

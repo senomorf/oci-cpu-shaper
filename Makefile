@@ -1,14 +1,22 @@
 SHELL := /bin/bash
 
 GO ?= go
-MIN_COVERAGE ?= 85.0
+MIN_COVERAGE ?= 95.0
 COVERAGE_PROFILE ?= coverage.out
 COVERAGE_SUMMARY ?= coverage.txt
 
 MODULE := $(shell $(GO) list -m 2>/dev/null)
 PKGS := $(shell $(GO) list ./... 2>/dev/null)
-COVERAGE_EXCLUDES ?= $(if $(MODULE),$(MODULE)/cmd/agentscheck $(MODULE)/tests/integration/cmd/cpu-hog $(MODULE)/tests/internal/%,)
-COVERAGE_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(PKGS))
+COVERAGE_EXCLUDES ?= $(if $(MODULE),$(MODULE)/cmd/agentscheck% $(MODULE)/hack/%,)
+PROD_PATTERNS := ./cmd/... ./internal/... ./pkg/...
+PROD_PKGS := $(shell $(GO) list $(PROD_PATTERNS) 2>/dev/null)
+COVERAGE_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(PROD_PKGS))
+INTEGRATION_PKGS_RAW := $(shell $(GO) list ./tests/integration/... 2>/dev/null)
+INTEGRATION_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(INTEGRATION_PKGS_RAW))
+E2E_PKGS_RAW := $(shell $(GO) list ./tests/e2e/... 2>/dev/null)
+E2E_PKGS := $(filter-out $(COVERAGE_EXCLUDES),$(E2E_PKGS_RAW))
+COVERAGE_TAGS ?= integration e2e
+COVERAGE_TAG_ARGS := $(if $(strip $(COVERAGE_TAGS)),-tags "$(strip $(COVERAGE_TAGS))",)
 
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOFUMPT_VERSION ?= 0.9.2
@@ -81,22 +89,43 @@ test:
 
 coverage:
 	@set -euo pipefail; \
-	if [ -z "$(strip $(PKGS))" ]; then \
-		echo "No Go packages found; skipping coverage."; \
-	elif [ -z "$(strip $(COVERAGE_PKGS))" ]; then \
-		echo "No Go packages selected for coverage after exclusions; adjust COVERAGE_EXCLUDES."; \
-		exit 1; \
-	else \
-		excluded="$(strip $(COVERAGE_EXCLUDES))"; \
-		if [ -n "$$excluded" ]; then \
-			echo "Excluding packages from coverage: $$excluded"; \
-		fi; \
-		$(GO) test -race -covermode=atomic -coverprofile=$(COVERAGE_PROFILE) $(COVERAGE_PKGS); \
-		$(GO) tool cover -func=$(COVERAGE_PROFILE) | tee $(COVERAGE_SUMMARY); \
-		TOTAL=$$(awk '/^total:/ {total=$$NF} END {print total}' $(COVERAGE_SUMMARY)); \
-		if [ -n "$$TOTAL" ]; then \
-			echo "Total coverage: $$TOTAL"; \
-			COVERAGE_VALUE=$$(printf '%s' "$$TOTAL" | tr -d '%'); \
+        if [ -z "$(strip $(PKGS))" ]; then \
+                echo "No Go packages found; skipping coverage."; \
+        elif [ -z "$(strip $(COVERAGE_PKGS))" ]; then \
+                echo "No Go packages selected for coverage after exclusions; adjust COVERAGE_EXCLUDES."; \
+                exit 1; \
+        else \
+                excluded="$(strip $(COVERAGE_EXCLUDES))"; \
+                if [ -n "$$excluded" ]; then \
+                        echo "Excluding packages from coverage: $$excluded"; \
+                fi; \
+                coverage_pkgs="$(strip $(COVERAGE_PKGS))"; \
+                coverage_csv=$$(printf '%s' "$$coverage_pkgs" | tr ' \n' ',' | sed 's/,,*/,/g; s/^,//; s/,$$//'); \
+                rm -f $(COVERAGE_PROFILE) $(COVERAGE_SUMMARY); \
+                unit_profile="coverage-unit.out"; \
+                $(GO) test -race -covermode=atomic -coverpkg="$$coverage_csv" -coverprofile="$$unit_profile" $(COVERAGE_PKGS); \
+                cat "$$unit_profile" > $(COVERAGE_PROFILE); \
+                rm -f "$$unit_profile"; \
+                if [ -n "$(strip $(INTEGRATION_PKGS))" ]; then \
+                        integration_profile="coverage-integration.out"; \
+                        $(GO) test -race -covermode=atomic -tags=integration -coverpkg="$$coverage_csv" -coverprofile="$$integration_profile" $(INTEGRATION_PKGS); \
+                        tail -n +2 "$$integration_profile" >> $(COVERAGE_PROFILE); \
+                        rm -f "$$integration_profile"; \
+                fi; \
+                if [ -n "$(strip $(E2E_PKGS))" ]; then \
+                        e2e_profile="coverage-e2e.out"; \
+                        if $(GO) test -race -covermode=atomic -tags=e2e -coverpkg="$$coverage_csv" -coverprofile="$$e2e_profile" $(E2E_PKGS); then \
+                                tail -n +2 "$$e2e_profile" >> $(COVERAGE_PROFILE); \
+                        else \
+                                echo "Skipping e2e coverage due to test failures"; \
+                        fi; \
+                        rm -f "$$e2e_profile"; \
+                fi; \
+                $(GO) tool cover -func=$(COVERAGE_PROFILE) | tee $(COVERAGE_SUMMARY); \
+                TOTAL=$$(awk '/^total:/ {total=$$NF} END {print total}' $(COVERAGE_SUMMARY)); \
+                if [ -n "$$TOTAL" ]; then \
+                        echo "Total coverage: $$TOTAL"; \
+                        COVERAGE_VALUE=$$(printf '%s' "$$TOTAL" | tr -d '%'); \
 			if ! awk -v cov="$$COVERAGE_VALUE" -v min="$(MIN_COVERAGE)" 'BEGIN {if (cov+0 >= min+0) exit 0; exit 1}' ; then \
 				echo "Coverage $${COVERAGE_VALUE}% is below required $(MIN_COVERAGE)%"; \
 				exit 1; \

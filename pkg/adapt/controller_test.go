@@ -596,6 +596,15 @@ func TestNewNoopController(t *testing.T) {
 	}
 }
 
+func TestNewNoopControllerDefaultsMode(t *testing.T) {
+	t.Parallel()
+
+	ctrl := NewNoopController("   ")
+	if ctrl.Mode() != "noop" {
+		t.Fatalf("expected noop mode when input is blank, got %q", ctrl.Mode())
+	}
+}
+
 func TestValidateConfig(t *testing.T) {
 	t.Parallel()
 
@@ -610,6 +619,112 @@ func TestValidateConfig(t *testing.T) {
 	invalid.SuppressThreshold = 0.20
 
 	err = ValidateConfig(invalid)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+func TestEnsureDurationUsesFallback(t *testing.T) {
+	t.Parallel()
+
+	fallback := 10 * time.Second
+
+	if got := ensureDuration(0, fallback); got != fallback {
+		t.Fatalf("expected fallback duration, got %v", got)
+	}
+
+	if got := ensureDuration(-time.Minute, fallback); got != fallback {
+		t.Fatalf("expected fallback for negative duration, got %v", got)
+	}
+}
+
+func TestEnsureDurationKeepsPositive(t *testing.T) {
+	t.Parallel()
+
+	expected := 5 * time.Second
+
+	if got := ensureDuration(expected, time.Minute); got != expected {
+		t.Fatalf("expected positive duration to be preserved, got %v", got)
+	}
+}
+
+func TestEnsureFloatUsesFallback(t *testing.T) {
+	t.Parallel()
+
+	fallback := 0.75
+
+	if got := ensureFloat(0, fallback); got != fallback {
+		t.Fatalf("expected fallback float, got %f", got)
+	}
+}
+
+func TestEnsureFloatKeepsNonZero(t *testing.T) {
+	t.Parallel()
+
+	expected := 0.42
+
+	if got := ensureFloat(expected, 0.75); got != expected {
+		t.Fatalf("expected non-zero float to be preserved, got %f", got)
+	}
+}
+
+func TestStateStringUnknown(t *testing.T) {
+	t.Parallel()
+
+	if got := State(-1).String(); got != "unknown" {
+		t.Fatalf("expected unknown state string, got %q", got)
+	}
+}
+
+func TestClampEnforcesBounds(t *testing.T) {
+	t.Parallel()
+
+	if got := clamp(-0.5, 0, 1); got != 0 {
+		t.Fatalf("expected clamp to return lower bound, got %f", got)
+	}
+
+	if got := clamp(1.5, 0, 1); got != 1 {
+		t.Fatalf("expected clamp to return upper bound, got %f", got)
+	}
+
+	if got := clamp(0.5, 0, 1); got != 0.5 {
+		t.Fatalf("expected clamp to preserve value within bounds, got %f", got)
+	}
+}
+
+func TestNormalizeConfigAdjustsSuppressResume(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.SuppressThreshold = 0.6
+	cfg.SuppressResume = 0.9
+
+	normalized, mode, err := normalizeConfig(cfg)
+	if err != nil {
+		t.Fatalf("normalizeConfig returned error: %v", err)
+	}
+
+	if mode != defaultModeLabel {
+		t.Fatalf("expected default mode label, got %q", mode)
+	}
+
+	expectedResume := cfg.SuppressThreshold * suppressResumeScale
+	if math.Abs(normalized.SuppressResume-expectedResume) > 1e-6 {
+		t.Fatalf(
+			"expected suppress resume %.2f, got %.2f",
+			expectedResume,
+			normalized.SuppressResume,
+		)
+	}
+}
+
+func TestNormalizeConfigValidatesThresholds(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+	cfg.SuppressThreshold = cfg.TargetStart - 0.1
+
+	_, _, err := normalizeConfig(cfg)
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("expected ErrInvalidConfig, got %v", err)
 	}

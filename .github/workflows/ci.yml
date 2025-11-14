@@ -182,7 +182,7 @@ jobs:
 
       - name: Run coverage suite
         env:
-          MIN_COVERAGE: "85"
+          MIN_COVERAGE: "95"
           COVERAGE_PROFILE: coverage.out
           COVERAGE_SUMMARY: coverage.txt
         run: make coverage MIN_COVERAGE=$MIN_COVERAGE COVERAGE_PROFILE=$COVERAGE_PROFILE COVERAGE_SUMMARY=$COVERAGE_SUMMARY

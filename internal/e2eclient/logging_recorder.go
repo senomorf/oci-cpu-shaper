@@ -1,4 +1,4 @@
-package e2e
+package e2eclient
 
 import (
 	"strings"
@@ -9,9 +9,6 @@ import (
 	"oci-cpu-shaper/pkg/adapt"
 )
 
-// loggingRecorder wraps the controller metrics recorder and emits structured logs when the
-// controller state changes. The helper keeps tests informed about transitions without affecting
-// production builds.
 type loggingRecorder struct {
 	logger   *zap.Logger
 	delegate adapt.MetricsRecorder
@@ -23,8 +20,11 @@ type loggingRecorder struct {
 // NewLoggingRecorder decorates the provided MetricsRecorder so e2e tests can observe
 // controller state transitions via structured logs.
 //
-//nolint:ireturn // tests need the adapt.MetricsRecorder interface for controller wiring.
-func NewLoggingRecorder(logger *zap.Logger, delegate adapt.MetricsRecorder) adapt.MetricsRecorder {
+//nolint:ireturn // tests rely on interface for decorator wiring
+func NewLoggingRecorder(
+	logger *zap.Logger,
+	delegate adapt.MetricsRecorder,
+) adapt.MetricsRecorder {
 	if logger == nil || delegate == nil {
 		return delegate
 	}
