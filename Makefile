@@ -39,6 +39,8 @@ GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
 ACTIONLINT_BIN ?= $(GO_BIN_PATH)/actionlint
 ACTIONLINT ?= $(ACTIONLINT_BIN)
+ACTIONLINT_FLAGS ?=
+ACTIONLINT_PATHS ?=
 
 .PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt ensure-actionlint agents coverage govulncheck integration e2e actionlint lint-workflows
 
@@ -167,7 +169,11 @@ actionlint: ensure-actionlint
 	if [ ! -d ".github/workflows" ]; then \
 		echo "No workflows directory found; skipping workflow lint."; \
 	else \
-		$(ACTIONLINT); \
+		if [ -n "$(strip $(ACTIONLINT_PATHS))" ]; then \
+			$(ACTIONLINT) $(strip $(ACTIONLINT_FLAGS)) $(ACTIONLINT_PATHS); \
+		else \
+			$(ACTIONLINT) $(strip $(ACTIONLINT_FLAGS)); \
+		fi; \
 	fi
 
 lint-workflows: actionlint

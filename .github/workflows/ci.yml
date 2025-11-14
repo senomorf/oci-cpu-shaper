@@ -101,8 +101,15 @@ jobs:
         run: make lint
 
   actionlint:
-    name: actionlint
+    name: actionlint (${{ matrix.workflow }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workflow:
+          - ci.yml
+          - load.yml
+          - release.yml
+          - self-hosted.yml
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5.0.0
@@ -124,7 +131,7 @@ jobs:
             ${{ runner.os }}-go-cache-
 
       - name: Run actionlint
-        run: make actionlint
+        run: make actionlint ACTIONLINT_PATHS=".github/workflows/${{ matrix.workflow }}"
 
   govulncheck:
     name: govulncheck
