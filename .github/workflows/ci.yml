@@ -130,6 +130,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-cache-
 
+      - name: Install shellcheck and pyflakes
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck python3-pip
+          python3 -m pip install --user pyflakes==3.2.0
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+
       - name: Run actionlint
         run: make actionlint ACTIONLINT_PATHS=".github/workflows/${{ matrix.workflow }}"
 
@@ -218,7 +229,15 @@ jobs:
           MIN_COVERAGE: "95"
           COVERAGE_PROFILE: coverage.out
           COVERAGE_SUMMARY: coverage.txt
-        run: make coverage MIN_COVERAGE=$MIN_COVERAGE COVERAGE_PROFILE=$COVERAGE_PROFILE COVERAGE_SUMMARY=$COVERAGE_SUMMARY
+        run: |
+          set -o errexit
+          set -o nounset
+          set -o pipefail
+
+          make coverage \
+            MIN_COVERAGE="$MIN_COVERAGE" \
+            COVERAGE_PROFILE="$COVERAGE_PROFILE" \
+            COVERAGE_SUMMARY="$COVERAGE_SUMMARY"
 
       - name: Publish coverage summary
         run: |
