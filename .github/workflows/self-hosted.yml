@@ -62,9 +62,11 @@ jobs:
             exit 1
           fi
 
-          echo "instance-ocid=$instance_id" >> "$GITHUB_OUTPUT"
-          echo "compartment-ocid=$compartment_id" >> "$GITHUB_OUTPUT"
-          echo "region=$region" >> "$GITHUB_OUTPUT"
+          {
+            echo "instance-ocid=$instance_id"
+            echo "compartment-ocid=$compartment_id"
+            echo "region=$region"
+          } >>"$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v6.0.0
