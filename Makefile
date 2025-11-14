@@ -40,7 +40,7 @@ GOFUMPT ?= $(GOFUMPT_BIN)
 ACTIONLINT_BIN ?= $(GO_BIN_PATH)/actionlint
 ACTIONLINT ?= $(ACTIONLINT_BIN)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt ensure-actionlint agents coverage govulncheck integration e2e lint-workflows
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt ensure-actionlint agents coverage govulncheck integration e2e actionlint lint-workflows
 
 tools: ensure-golangci-lint ensure-gofumpt ensure-actionlint
 
@@ -162,13 +162,15 @@ govulncheck:
 
 check: lint test agents
 
-lint-workflows: ensure-actionlint
+actionlint: ensure-actionlint
 	@set -euo pipefail; \
 	if [ ! -d ".github/workflows" ]; then \
 		echo "No workflows directory found; skipping workflow lint."; \
 	else \
 		$(ACTIONLINT); \
 	fi
+
+lint-workflows: actionlint
 
 build:
 	$(GO) build ./...
