@@ -110,6 +110,7 @@ jobs:
           - load.yml
           - release.yml
           - self-hosted.yml
+          - go-dependency-submission.yml
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5.0.0
