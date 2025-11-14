@@ -21,6 +21,7 @@ COVERAGE_TAG_ARGS := $(if $(strip $(COVERAGE_TAGS)),-tags "$(strip $(COVERAGE_TA
 GOLANGCI_LINT_VERSION ?= v2.6.1
 GOFUMPT_VERSION ?= 0.9.2
 GOVULNCHECK_VERSION ?= v1.1.4
+ACTIONLINT_VERSION ?= v1.7.8
 
 GO_BIN_PATH := $(shell $(GO) env GOBIN)
 ifeq ($(GO_BIN_PATH),)
@@ -36,10 +37,12 @@ GOLANGCI_LINT_BIN ?= $(GO_BIN_PATH)/golangci-lint
 GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 GOFUMPT_BIN ?= $(GO_BIN_PATH)/gofumpt
 GOFUMPT ?= $(GOFUMPT_BIN)
+ACTIONLINT_BIN ?= $(GO_BIN_PATH)/actionlint
+ACTIONLINT ?= $(ACTIONLINT_BIN)
 
-.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt agents coverage govulncheck integration e2e
+.PHONY: fmt lint test build check tools ensure-golangci-lint ensure-gofumpt ensure-actionlint agents coverage govulncheck integration e2e lint-workflows
 
-tools: ensure-golangci-lint ensure-gofumpt
+tools: ensure-golangci-lint ensure-gofumpt ensure-actionlint
 
 ensure-golangci-lint:
 	@set -euo pipefail; \
@@ -77,6 +80,18 @@ ensure-gofumpt:
 	if [ "$$CURRENT_VERSION" != "$(GOFUMPT_VERSION)" ]; then \
 		echo "Installing gofumpt v$(GOFUMPT_VERSION)"; \
 		$(GO) install mvdan.cc/gofumpt@v$(GOFUMPT_VERSION); \
+	fi
+
+ensure-actionlint:
+	@set -euo pipefail; \
+	BIN="$(ACTIONLINT_BIN)"; \
+	CURRENT_VERSION=""; \
+	if [ -x "$$BIN" ]; then \
+		CURRENT_VERSION="$$($$BIN -version 2>/dev/null | head -n1)"; \
+	fi; \
+	if [ "$$CURRENT_VERSION" != "$(ACTIONLINT_VERSION)" ]; then \
+		echo "Installing actionlint $(ACTIONLINT_VERSION)"; \
+		$(GO) install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION); \
 	fi
 
 test:
@@ -146,6 +161,14 @@ govulncheck:
 	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 check: lint test agents
+
+lint-workflows: ensure-actionlint
+	@set -euo pipefail; \
+	if [ ! -d ".github/workflows" ]; then \
+		echo "No workflows directory found; skipping workflow lint."; \
+	else \
+		$(ACTIONLINT); \
+	fi
 
 build:
 	$(GO) build ./...
