@@ -310,21 +310,16 @@ jobs:
             exit 1
           fi
 
-          ratio=$(python - "$high_usage" "$low_usage" <<'PY'
-import decimal
-import sys
-
-high = decimal.Decimal(sys.argv[1])
-low = decimal.Decimal(sys.argv[2])
-ratio = high / low
-
-if ratio < decimal.Decimal('5.0'):
-    sys.stderr.write(f"::error::expected high weight container to receive at least 5.0x CPU time (got {ratio:.2f}x)\n")
-    sys.exit(1)
-
-print(ratio.quantize(decimal.Decimal('0.01')))
-PY
-          )
+          python_script=$'import decimal\n'
+          python_script+=$'import sys\n\n'
+          python_script+=$'high = decimal.Decimal(sys.argv[1])\n'
+          python_script+=$'low = decimal.Decimal(sys.argv[2])\n'
+          python_script+=$'ratio = high / low\n\n'
+          python_script+=$'if ratio < decimal.Decimal("5.0"):\n'
+          python_script+=$'    sys.stderr.write("::error::expected high weight container to receive at least 5.0x CPU time (got {:.2f}x)\\n".format(ratio))\n'
+          python_script+=$'    sys.exit(1)\n\n'
+          python_script+=$'print(ratio.quantize(decimal.Decimal("0.01")))\n'
+          ratio=$(python -c "$python_script" "$high_usage" "$low_usage")
           echo "Observed CPU usage ratio (high/low): $ratio" | tee "$run_dir/ratio.txt"
           echo "CPU weight responsiveness verified"
 
