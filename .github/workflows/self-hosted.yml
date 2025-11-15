@@ -30,17 +30,15 @@ jobs:
           base_url="http://169.254.169.254/opc/v2"
 
           instance_json=$(curl -sS -H "$header" "$base_url/instance/")
-          region_json=$(curl -sS -H "$header" "$base_url/regionInfo/")
           vnic_json=$(curl -sS -H "$header" "$base_url/vnics/0/")
 
-          echo "instance=$instance_json"
-          echo "region=$region_json"
-          echo "vnic=$vnic_json"
+          # echo "instance=$instance_json"
+          # echo "vnic=$vnic_json"
 
           instance_id=$(echo "$instance_json" | jq -r '.id')
           compartment_id=$(echo "$instance_json" | jq -r '.compartmentId')
           canonical_region=$(echo "$instance_json" | jq -r '.canonicalRegionName // ""')
-          fallback_region=$(echo "$region_json" | jq -r '.regionIdentifier // ""')
+          fallback_region=$(echo "$region_json" | jq -r '.regionInfo.regionIdentifier // ""')
 
           if [ -z "$instance_id" ] || [ "$instance_id" = "null" ]; then
             echo "::error::IMDS instance payload did not contain an id"
