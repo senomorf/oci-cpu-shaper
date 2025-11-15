@@ -81,7 +81,7 @@ jobs:
           SKIP_GUARD: ${{ vars.SELF_HOSTED_SKIP_ALARM_GUARD || 'false' }}
           REQUIRE_DESTINATIONS: ${{ vars.SELF_HOSTED_REQUIRE_ALARM_DESTINATIONS || 'true' }}
           EXPECTED_PENDING: ${{ vars.SELF_HOSTED_EXPECTED_PENDING_DURATION || 'PT1H' }}
-          EXPECTED_RESOLUTION: ${{ vars.SELF_HOSTED_EXPECTED_RESOLUTION || '1m' }}
+          EXPECTED_RESOLUTION: ${{ vars.SELF_HOSTED_EXPECTED_RESOLUTION || '1d' }}
         run: |
           set -euo pipefail
 
