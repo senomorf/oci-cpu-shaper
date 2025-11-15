@@ -38,7 +38,7 @@ jobs:
           instance_id=$(echo "$instance_json" | jq -r '.id')
           compartment_id=$(echo "$instance_json" | jq -r '.compartmentId')
           canonical_region=$(echo "$instance_json" | jq -r '.canonicalRegionName // ""')
-          fallback_region=$(echo "$region_json" | jq -r '.regionInfo.regionIdentifier // ""')
+          fallback_region=$(echo "$instance_json" | jq -r '.regionInfo.regionIdentifier // ""')
 
           if [ -z "$instance_id" ] || [ "$instance_id" = "null" ]; then
             echo "::error::IMDS instance payload did not contain an id"
