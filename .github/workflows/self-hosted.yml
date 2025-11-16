@@ -205,7 +205,8 @@ jobs:
           ls -lan "$hog_binary"
           echo "Checking permissions of mounted $hog_binary"
           docker run \
-            -v "$hog_binary:/hog:U,ro,z" \
+            --rm \
+            -v "./$hog_binary:/hog:ro,z" \
             alpine:3.20 \
             ls -lan /hog
             
@@ -215,7 +216,7 @@ jobs:
             --name "$high_name" \
             --cpuset-cpus=0 \
             --cpu-shares 1024 \
-            -v "$hog_binary:/hog:ro,z" \
+            -v "./$hog_binary:/hog:ro,z" \
             --entrypoint /hog \
             alpine:3.20 \
             -duration=40s \
@@ -227,7 +228,7 @@ jobs:
             --name "$low_name" \
             --cpuset-cpus=0 \
             --cpu-shares 2 \
-            -v "$hog_binary:/hog:ro,z" \
+            -v "./$hog_binary:/hog:ro,z" \
             --entrypoint /hog \
             oci-cpu-shaper:integration-rootful \
             -duration=40s \
