@@ -206,7 +206,6 @@ jobs:
           echo "Checking permissions of mounted $hog_binary"
           docker run \
             --rm \
-            --user=1001:1000 \
             -v "./$hog_binary:/hog:ro,z" \
             alpine:3.20 \
             ls -lan /hog
