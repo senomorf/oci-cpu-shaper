@@ -208,7 +208,7 @@ jobs:
             --name "$high_name" \
             --cpuset-cpus=0 \
             --cpu-shares 1024 \
-            -v "$hog_binary:/hog:ro" \
+            -v "$hog_binary:/hog:Z,ro" \
             --entrypoint /hog \
             alpine:3.20 \
             -duration=40s \
@@ -220,7 +220,7 @@ jobs:
             --name "$low_name" \
             --cpuset-cpus=0 \
             --cpu-shares 2 \
-            -v "$hog_binary:/hog:ro" \
+            -v "$hog_binary:/hog:Z,ro" \
             --entrypoint /hog \
             oci-cpu-shaper:integration-rootful \
             -duration=40s \
