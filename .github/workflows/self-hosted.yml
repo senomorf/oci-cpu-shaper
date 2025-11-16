@@ -198,6 +198,7 @@ jobs:
           echo "Building cpu-hog helper"
           GOARCH=$(go env GOARCH)
           CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" go build -o "$hog_binary" ./tests/integration/cmd/cpu-hog
+          chmod +x "$hog_binary"
 
           high_name="cpu-weight-high-$(date +%s%N)"
           low_name="cpu-weight-low-$(date +%s%N)"
